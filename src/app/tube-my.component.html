@@ -1,0 +1,317 @@
+<div class="tube-my">
+  <h2 id="tube-my-title">My Tube</h2>
+  <p class="tube-muted" id="tube-my-help">
+    Your subscribed channels are downloaded for in-platform viewing. Queue new
+    downloads from your subscriptions and watch completed videos below.
+  </p>
+
+  @if (loading()) {
+    <p class="tube-muted" role="status">Loading your Tube downloads…</p>
+  } @else if (accessDenied()) {
+    <section class="tube-panel" role="status" data-testid="tube-my-access-denied">
+      <h3>Tube access not yet granted</h3>
+      <p class="tube-muted">
+        You have the Tube service role, but an administrator has not yet granted
+        you permission to use Tube (or your access is currently timed out or
+        banned). Ask an administrator to grant your Tube access.
+      </p>
+    </section>
+  } @else if (error()) {
+    <p class="tube-error" role="alert" data-testid="tube-my-error">{{ error() }}</p>
+    <button type="button" class="tube-btn" (click)="reload()">Retry</button>
+  } @else {
+    <!-- Storage usage bar -->
+    <section class="tube-usage" aria-labelledby="tube-usage-label" data-testid="tube-usage">
+      <span id="tube-usage-label" class="tube-field__label">
+        Storage used: {{ formatBytes(usedBytes()) }}
+        @if (budgetFull()) { <strong class="tube-warning"> · budget full</strong> }
+      </span>
+      <div
+        class="tube-usage__track"
+        role="progressbar"
+        aria-label="Storage usage"
+        [attr.aria-valuenow]="usagePercent()"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        [attr.aria-valuetext]="formatBytes(usedBytes()) + ' used' + (budgetFull() ? ' — budget full' : '')"
+      >
+        <div
+          class="tube-usage__fill"
+          [class.tube-usage__fill--full]="budgetFull()"
+          [style.width.%]="usagePercent()"
+        ></div>
+      </div>
+    </section>
+
+    <!-- Enqueue action — DISABLED + helptext when the storage budget is full -->
+    <div class="tube-my__enqueue">
+      <button
+        type="button"
+        class="tube-btn"
+        (click)="enqueue()"
+        [disabled]="enqueuing() || budgetFull()"
+        aria-describedby="tube-enqueue-help"
+        data-testid="tube-enqueue"
+      >
+        {{ enqueuing() ? 'Enqueuing…' : 'Enqueue from subscriptions' }}
+      </button>
+      @if (budgetFull()) {
+        <p class="tube-warning" id="tube-enqueue-help" role="note" data-testid="tube-enqueue-help">
+          Your storage budget is full — an admin can raise it.
+        </p>
+      } @else {
+        <p class="tube-field__help" id="tube-enqueue-help">
+          Queue downloads for the newest videos from your subscribed channels.
+        </p>
+      }
+    </div>
+
+    @if (notice()) {
+      <p class="tube-success" role="status" data-testid="tube-my-notice">{{ notice() }}</p>
+    }
+
+    <!-- Google connect / subscription sync.
+         'degraded' = the status read FAILED: disclose the real failure and DISABLE the
+         controls (honest disclosure — never guess "not connected", never claim a
+         connect/sync can succeed when the backend cannot even report its state). -->
+    <section
+      class="tube-my__section tube-google"
+      role="region"
+      aria-labelledby="tube-google-title"
+      data-testid="tube-google"
+    >
+      <h3 id="tube-google-title">Google account</h3>
+
+      @if (connectDegraded()) {
+        <p class="tube-warning" role="alert" data-testid="tube-google-degraded">
+          {{ connectDegraded() }}
+        </p>
+        <button
+          type="button"
+          class="tube-btn"
+          disabled
+          aria-describedby="tube-google-help"
+          data-testid="tube-google-connect"
+        >
+          Connect Google
+        </button>
+        <p class="tube-field__help" id="tube-google-help" role="note" data-testid="tube-google-degraded-help">
+          Connect and sync stay disabled while your Google connection status cannot be read.
+        </p>
+      } @else if (!connectStatus()) {
+        <p class="tube-muted" role="status" data-testid="tube-google-loading">
+          Checking your Google connection…
+        </p>
+      } @else if (!googleConnected()) {
+        <p class="tube-field__help" id="tube-google-help">
+          Connect your Google account (YouTube read-only) to sync your subscribed
+          channels. You will be sent to Google's consent screen and brought back.
+        </p>
+        <button
+          type="button"
+          class="tube-btn"
+          (click)="connectGoogle()"
+          [disabled]="connectBusy()"
+          aria-describedby="tube-google-help"
+          data-testid="tube-google-connect"
+        >
+          {{ connectBusy() ? 'Preparing Google sign-in…' : 'Connect Google' }}
+        </button>
+      } @else {
+        <p class="tube-muted" data-testid="tube-google-connected">
+          Connected as
+          <strong>{{ connectStatus()!.googleEmail || 'your Google account' }}</strong>
+          @if (connectStatus()!.connectedAt) {
+            <span> since {{ connectStatus()!.connectedAt }}</span>
+          }
+        </p>
+
+        @if (reauthRequired()) {
+          <p class="tube-warning" role="alert" data-testid="tube-google-reauth">
+            Google rejected the stored credential — reconnect your Google account
+            to sync again.
+          </p>
+          <button
+            type="button"
+            class="tube-btn"
+            (click)="connectGoogle()"
+            [disabled]="connectBusy()"
+            data-testid="tube-google-connect"
+          >
+            {{ connectBusy() ? 'Preparing Google sign-in…' : 'Reconnect Google' }}
+          </button>
+        }
+
+        <div class="tube-google__actions">
+          <button
+            type="button"
+            class="tube-btn"
+            (click)="sync()"
+            [disabled]="syncing() || !canSync()"
+            aria-describedby="tube-google-sync-help"
+            data-testid="tube-google-sync"
+          >
+            {{ syncing() ? 'Syncing…' : 'Sync subscriptions' }}
+          </button>
+          @if (reauthRequired()) {
+            <p class="tube-warning" id="tube-google-sync-help" role="note" data-testid="tube-google-sync-help">
+              Sync is disabled until you reconnect — the server stops a sync whose
+              Google credential has failed.
+            </p>
+          } @else {
+            <p class="tube-field__help" id="tube-google-sync-help">
+              Mirror your YouTube subscriptions into Tube.
+            </p>
+          }
+          <button
+            type="button"
+            class="tube-btn tube-btn--danger"
+            (click)="disconnectGoogle()"
+            [disabled]="disconnecting()"
+            data-testid="tube-google-disconnect"
+          >
+            {{ disconnecting() ? 'Disconnecting…' : 'Disconnect Google' }}
+          </button>
+        </div>
+      }
+
+      @if (connectError()) {
+        <p class="tube-error" role="alert" data-testid="tube-google-error">
+          {{ connectError() }}
+        </p>
+      }
+    </section>
+
+    <!-- Subscriptions -->
+    <section class="tube-my__section" role="region" aria-labelledby="tube-subs-title">
+      <h3 id="tube-subs-title">Subscribed channels</h3>
+      @if (subscriptions().length === 0) {
+        <p class="tube-muted" data-testid="tube-subs-empty">
+          You have no subscribed channels yet. Connect your Google account and sync
+          your YouTube subscriptions to start — use the Google account panel above.
+        </p>
+      } @else {
+        <ul class="tube-subs">
+          @for (s of subscriptions(); track trackChannel($index, s)) {
+            <li class="tube-card tube-subs__row" [attr.data-testid]="'tube-sub-' + s.channelId">
+              @if (s.thumbnailUrl) {
+                <img
+                  class="tube-subs__thumb"
+                  [attr.src]="s.thumbnailUrl"
+                  alt=""
+                  loading="lazy"
+                  width="40"
+                  height="40"
+                />
+              }
+              <span class="tube-subs__name">{{ s.channelTitle || s.channelId }}</span>
+              <code class="tube-subs__id tube-muted">{{ s.channelId }}</code>
+            </li>
+          }
+        </ul>
+      }
+    </section>
+
+    <!-- Download queue -->
+    <section class="tube-my__section" role="region" aria-labelledby="tube-queue-title">
+      <h3 id="tube-queue-title">Download queue</h3>
+      @if (jobs().length === 0) {
+        <p class="tube-muted" data-testid="tube-queue-empty">Your download queue is empty.</p>
+      } @else {
+        <ul class="tube-queue">
+          @for (j of jobs(); track trackId($index, j)) {
+            <li class="tube-card tube-job-row" [attr.data-testid]="'tube-job-' + j.id">
+              <span class="tube-job-row__title">{{ j.title || j.videoId }}</span>
+              <span
+                class="tube-badge"
+                [attr.data-state]="j.state"
+                [attr.aria-label]="'Status: ' + j.state"
+                [attr.data-testid]="'tube-job-state-' + j.id"
+              >{{ j.state }}</span>
+              @if (j.bytes) {
+                <span class="tube-muted">{{ formatBytes(j.bytes) }}</span>
+              }
+              @if (j.state === 'failed' && j.lastError) {
+                <span class="tube-error" role="note">{{ j.lastError }}</span>
+              }
+            </li>
+          }
+        </ul>
+      }
+    </section>
+
+    <!-- In-platform viewing of completed downloads -->
+    <section class="tube-my__section" role="region" aria-labelledby="tube-watch-title">
+      <h3 id="tube-watch-title">Watch</h3>
+      @if (watchable().length === 0) {
+        <p class="tube-muted" data-testid="tube-watch-empty">
+          No completed downloads yet — videos appear here once they finish downloading.
+        </p>
+      } @else {
+        <div class="tube-watch">
+          @for (j of watchable(); track trackId($index, j)) {
+            <figure class="tube-card tube-watch__card" [attr.data-testid]="'tube-watch-' + j.id">
+              <figcaption class="tube-watch__title">{{ j.title || j.videoId }}</figcaption>
+
+              <!-- Sign-on-demand: the signed URL is fetched from GET /bff/tube/media/sign
+                   for THIS job's OWN contentPath only when the user asks to load it. -->
+              @switch (playerFor(j.id).status) {
+                @case ('ready') {
+                  <video
+                    class="tube-watch__player"
+                    controls
+                    autoplay
+                    preload="none"
+                    [attr.src]="playerFor(j.id).url"
+                    [attr.aria-label]="'Play ' + (j.title || j.videoId)"
+                    [attr.data-testid]="'tube-watch-video-' + j.id"
+                  >
+                    Your browser does not support the video tag.
+                  </video>
+                }
+                @case ('loading') {
+                  <p
+                    class="tube-muted"
+                    role="status"
+                    [attr.data-testid]="'tube-watch-loading-' + j.id"
+                  >
+                    Preparing video…
+                  </p>
+                }
+                @case ('error') {
+                  <p
+                    class="tube-error"
+                    role="alert"
+                    [attr.data-testid]="'tube-watch-error-' + j.id"
+                  >
+                    {{ playerFor(j.id).message }}
+                  </p>
+                  <button
+                    type="button"
+                    class="tube-btn"
+                    (click)="play(j)"
+                    [attr.aria-label]="'Retry loading ' + (j.title || j.videoId)"
+                    [attr.data-testid]="'tube-watch-retry-' + j.id"
+                  >
+                    Retry
+                  </button>
+                }
+                @default {
+                  <button
+                    type="button"
+                    class="tube-btn"
+                    (click)="play(j)"
+                    [attr.aria-label]="'Load and play ' + (j.title || j.videoId)"
+                    [attr.data-testid]="'tube-watch-load-' + j.id"
+                  >
+                    Load video
+                  </button>
+                }
+              }
+            </figure>
+          }
+        </div>
+      }
+    </section>
+  }
+</div>

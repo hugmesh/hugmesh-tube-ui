@@ -1,0 +1,191 @@
+<div class="tube-access">
+  <h2 id="tube-access-title">Tube access</h2>
+  <p class="tube-muted" id="tube-access-help">
+    Grant a user permission to use Tube, time them out, ban them, or restore
+    access. Use is default-deny — a grant is what lets a user download. Changes
+    are domain-scoped to your brand and recorded for audit.
+  </p>
+
+  <form (ngSubmit)="submit()" novalidate aria-labelledby="tube-access-title" aria-describedby="tube-access-help">
+    <fieldset class="tube-access__fieldset">
+      <legend>Action</legend>
+      <div class="tube-access__actions" role="radiogroup" aria-label="Access action">
+        @for (a of actions; track a.value) {
+          <label class="tube-access__radio">
+            <input
+              type="radio"
+              name="action"
+              [value]="a.value"
+              [checked]="action() === a.value"
+              (change)="setAction(a.value)"
+              [attr.data-testid]="'tube-access-action-' + a.value"
+              [attr.aria-describedby]="'tube-access-help-' + a.value"
+            />
+            <span>{{ a.label }}</span>
+          </label>
+          <span class="sr" [id]="'tube-access-help-' + a.value">{{ a.help }}</span>
+        }
+      </div>
+      <p class="tube-field__help" data-testid="tube-access-action-help">
+        {{ actions[0].value === action() ? actions[0].help : action() === 'timeout' ? actions[1].help : actions[2].help }}
+      </p>
+    </fieldset>
+
+    <div class="tube-field">
+      <label for="tube-access-user">User subject</label>
+      <input
+        id="tube-access-user"
+        name="userSubject"
+        [ngModel]="userSubject()"
+        (ngModelChange)="userSubject.set($event)"
+        data-testid="tube-access-user"
+        aria-describedby="tube-access-user-help tube-access-user-err"
+        [attr.aria-invalid]="userInvalid()"
+        autocomplete="off"
+      />
+      <p class="tube-field__help" id="tube-access-user-help">
+        The user's stable Casdoor subject (e.g. <code>google:alice&#64;gmail.com</code>).
+      </p>
+      @if (userInvalid()) {
+        <p class="tube-error" id="tube-access-user-err" role="alert">A user subject is required.</p>
+      }
+    </div>
+
+    @if (action() === 'timeout') {
+      <div class="tube-field">
+        <label for="tube-access-ttl">Timeout duration (hours)</label>
+        <input
+          id="tube-access-ttl"
+          name="timeoutHours"
+          type="number"
+          min="1"
+          [ngModel]="timeoutHours()"
+          (ngModelChange)="timeoutHours.set(+$event)"
+          data-testid="tube-access-ttl"
+          aria-describedby="tube-access-ttl-help tube-access-ttl-err"
+          [attr.aria-invalid]="ttlInvalid()"
+        />
+        <p class="tube-field__help" id="tube-access-ttl-help">
+          How long the timeout lasts. Use auto-restores when it expires.
+        </p>
+        @if (ttlInvalid()) {
+          <p class="tube-error" id="tube-access-ttl-err" role="alert">Enter a positive number of hours.</p>
+        }
+      </div>
+    }
+
+    <div class="tube-field">
+      <label for="tube-access-reason">Reason (optional)</label>
+      <input
+        id="tube-access-reason"
+        name="reason"
+        [ngModel]="reason()"
+        (ngModelChange)="reason.set($event)"
+        data-testid="tube-access-reason"
+        aria-describedby="tube-access-reason-help"
+        autocomplete="off"
+      />
+      <p class="tube-field__help" id="tube-access-reason-help">A short note recorded with the change for audit.</p>
+    </div>
+
+    @if (action() === 'ban') {
+      <p class="tube-warning" role="note" data-testid="tube-access-ban-note">
+        A ban takes precedence: it blocks the user even if they hold an active
+        grant. Use “Restore” below (or the list panel) to lift it later.
+      </p>
+    }
+
+    <div class="tube-access__submit">
+      <button type="submit" class="tube-btn" [disabled]="busy()" data-testid="tube-access-submit">
+        {{ busy() ? 'Applying…' : 'Apply' }}
+      </button>
+    </div>
+  </form>
+
+  @if (notice()) {
+    <p class="tube-success" role="status" data-testid="tube-access-notice">{{ notice() }}</p>
+  }
+  @if (error()) {
+    <p class="tube-error" role="alert" data-testid="tube-access-error">{{ error() }}</p>
+  }
+
+  @if (result(); as r) {
+    <section class="tube-access__result tube-panel" role="status" aria-label="Access change result" data-testid="tube-access-result">
+      <h3>Applied</h3>
+      <dl>
+        <dt>User</dt><dd>{{ r.userSubject }}</dd>
+        <dt>Type</dt><dd>{{ r.accessType }}</dd>
+        <dt>State</dt><dd>{{ r.state }}</dd>
+        <dt>Expires</dt><dd>{{ r.expiresAt ? (r.expiresAt | date: 'medium') : 'never (permanent)' }}</dd>
+        @if (r.reason) { <dt>Reason</dt><dd>{{ r.reason }}</dd> }
+      </dl>
+      <div class="tube-access__result-actions">
+        @if (r.accessType === 'banned' && r.state === 'active') {
+          <button type="button" class="tube-btn tube-btn--secondary" (click)="restore(r.userSubject)" data-testid="tube-access-restore">
+            Restore (lift ban)
+          </button>
+        }
+        @if (r.accessType === 'use' && r.state === 'active') {
+          <button type="button" class="tube-btn tube-btn--danger" (click)="removeGrant(r.userSubject)" data-testid="tube-access-remove">
+            Remove grant
+          </button>
+        }
+      </div>
+    </section>
+  }
+
+  @if (canManageAll()) {
+    <section class="tube-access__manage tube-panel" aria-labelledby="tube-access-manage-title" data-testid="tube-access-manage">
+      <h3 id="tube-access-manage-title">Active overrides</h3>
+      <button type="button" class="tube-btn tube-btn--secondary" (click)="loadActive()" data-testid="tube-access-refresh">Refresh</button>
+      @if (activeLoading()) {
+        <p class="tube-muted" role="status">Loading active overrides…</p>
+      } @else if (activeError()) {
+        <p class="tube-error" role="alert">{{ activeError() }}</p>
+      } @else if (active().length === 0) {
+        <p class="tube-muted" data-testid="tube-access-active-empty">No active overrides.</p>
+      } @else {
+        <ul class="tube-access__list">
+          @for (a of active(); track trackId($index, a)) {
+            <li class="tube-access-row" [attr.data-testid]="'tube-access-row-' + a.userSubject">
+              <code>{{ a.userSubject }}</code>
+              <span class="tube-badge" [attr.data-state]="a.accessType">{{ a.accessType }}</span>
+              <span class="tube-muted">{{ a.expiresAt ? ('until ' + (a.expiresAt | date: 'short')) : 'permanent' }}</span>
+            </li>
+          }
+        </ul>
+      }
+
+      <h3 id="tube-access-history-title">History</h3>
+      <div class="tube-field">
+        <label for="tube-access-history-user">User subject</label>
+        <input
+          id="tube-access-history-user"
+          name="historyUser"
+          [ngModel]="historyUser()"
+          (ngModelChange)="historyUser.set($event)"
+          data-testid="tube-access-history-user"
+          aria-describedby="tube-access-history-help"
+          autocomplete="off"
+        />
+        <p class="tube-field__help" id="tube-access-history-help">View the full grant/timeout/ban history (active + revoked) for a user.</p>
+      </div>
+      <button type="button" class="tube-btn tube-btn--secondary" (click)="loadHistory()" data-testid="tube-access-history-load">Load history</button>
+      @if (historyLoaded()) {
+        @if (history().length === 0) {
+          <p class="tube-muted" data-testid="tube-access-history-empty">No history for that user.</p>
+        } @else {
+          <ul class="tube-access__list" data-testid="tube-access-history-list">
+            @for (a of history(); track trackId($index, a)) {
+              <li class="tube-access-row">
+                <span class="tube-badge" [attr.data-state]="a.accessType">{{ a.accessType }}</span>
+                <span class="tube-muted">{{ a.state }}</span>
+                <span class="tube-muted">{{ a.createdAt | date: 'short' }}</span>
+              </li>
+            }
+          </ul>
+        }
+      }
+    </section>
+  }
+</div>

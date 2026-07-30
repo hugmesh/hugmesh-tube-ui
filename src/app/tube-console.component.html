@@ -1,0 +1,31 @@
+<header class="tube-head">
+  <h1>Tube</h1>
+  <p class="tube-head__sub" id="tube-console-help">
+    Your subscribed-channel downloads: queue and watch your videos, and (for admins) control who may use Tube and how much they can store.
+  </p>
+
+  @if (visibleItems().length > 0) {
+    <nav class="tube-nav" role="menubar" aria-label="Tube console" aria-describedby="tube-console-help">
+      @for (item of visibleItems(); track item.path; let i = $index) {
+        <a
+          #navlink
+          role="menuitem"
+          class="tube-nav__item"
+          [routerLink]="['./', item.path]"
+          routerLinkActive="tube-nav__item--active"
+          ariaCurrentWhenActive="page"
+          [attr.aria-label]="item.aria"
+          [attr.aria-describedby]="'tube-nav-help-' + item.path"
+          [attr.tabindex]="tabindexFor(i)"
+          (keydown)="onKey($event, i)"
+          [attr.data-testid]="'tube-nav-' + item.path"
+        >
+          {{ item.label }}
+        </a>
+        <span class="sr" [id]="'tube-nav-help-' + item.path">{{ item.help }}</span>
+      }
+    </nav>
+  }
+</header>
+
+<router-outlet></router-outlet>

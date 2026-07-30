@@ -1,0 +1,12 @@
+<section class="tube-forbidden tube-panel" role="alert" aria-labelledby="tube-forbidden-title">
+  <h2 id="tube-forbidden-title">You don't have access to this view</h2>
+  <p>
+    Your role doesn't include permission for this part of the Tube console.
+    Managing Tube access and storage budgets requires the admin or superadmin
+    role; the "My Tube" console requires the Tube service role. If you need
+    access, ask an administrator.
+  </p>
+  @if (canUse()) {
+    <a routerLink="../my" class="tube-btn" data-testid="tube-forbidden-back">Back to My Tube</a>
+  }
+</section>

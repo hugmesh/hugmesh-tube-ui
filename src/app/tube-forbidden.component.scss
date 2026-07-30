@@ -1,0 +1,13 @@
+@use 'controls';
+
+.tube-forbidden {
+  max-width: 48rem;
+
+  h2 {
+    margin-top: 0;
+  }
+
+  p {
+    color: var(--tube-text-muted);
+  }
+}

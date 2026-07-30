@@ -1,0 +1,136 @@
+// Shared tube control styles (buttons, helper text, status colours) the
+// per-component sidecar SCSS pull in via `@use 'controls'`. Centralised so the
+// console's affordances stay visually consistent and the WCAG palette tokens
+// are read from ONE place. (src/styles is on the sass includePaths.)
+
+.tube-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem 1rem;
+  border-radius: var(--tube-radius);
+  background: var(--tube-accent);
+  color: #ffffff;
+  border: 1px solid var(--tube-accent);
+  text-decoration: none;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:hover,
+  &:focus-visible {
+    background: var(--tube-accent-soft);
+    color: #0a0a12;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.tube-btn--secondary {
+  background: transparent;
+  color: var(--tube-text);
+
+  &:hover,
+  &:focus-visible {
+    background: var(--tube-surface);
+    color: var(--tube-text);
+    border-color: var(--tube-accent-soft);
+  }
+}
+
+.tube-btn--danger {
+  background: transparent;
+  color: var(--tube-error);
+  border-color: var(--tube-error);
+
+  &:hover,
+  &:focus-visible {
+    background: var(--tube-error);
+    color: #0a0a12;
+  }
+}
+
+.tube-muted {
+  color: var(--tube-text-muted);
+}
+
+.tube-error {
+  color: var(--tube-error);
+  font-weight: 600;
+}
+
+.tube-success {
+  color: var(--tube-success);
+  font-weight: 600;
+}
+
+.tube-warning {
+  color: var(--tube-warning);
+  font-weight: 600;
+}
+
+.tube-field {
+  display: grid;
+  gap: 0.35rem;
+  margin-bottom: 1rem;
+
+  > label,
+  > .tube-field__label {
+    font-weight: 600;
+  }
+
+  input,
+  textarea,
+  select {
+    width: 100%;
+    padding: 0.5rem 0.65rem;
+    background: var(--tube-bg);
+    color: var(--tube-text);
+    border: 1px solid var(--tube-border);
+    border-radius: var(--tube-radius);
+    font: inherit;
+
+    &[aria-invalid='true'] {
+      border-color: var(--tube-error);
+    }
+  }
+
+  &__help {
+    color: var(--tube-text-muted);
+    font-size: 0.9rem;
+  }
+}
+
+.tube-panel {
+  background: var(--tube-surface);
+  border: 1px solid var(--tube-border);
+  border-radius: var(--tube-radius);
+  padding: 1.25rem 1.5rem;
+}
+
+// The storage-usage bar — a labelled <progress>-style meter.
+.tube-usage {
+  display: grid;
+  gap: 0.4rem;
+  margin: 1rem 0;
+}
+
+.tube-usage__track {
+  position: relative;
+  height: 1rem;
+  background: var(--tube-bg);
+  border: 1px solid var(--tube-border);
+  border-radius: var(--tube-radius);
+  overflow: hidden;
+}
+
+.tube-usage__fill {
+  height: 100%;
+  background: var(--tube-accent);
+
+  &--full {
+    background: var(--tube-error);
+  }
+}

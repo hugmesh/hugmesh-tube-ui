@@ -1,0 +1,126 @@
+@use 'controls';
+
+.tube-my {
+  display: block;
+
+  &__section {
+    margin-top: 2rem;
+  }
+
+  &__enqueue {
+    display: grid;
+    gap: 0.4rem;
+    margin: 1rem 0;
+    max-width: 36rem;
+  }
+}
+
+// The Google connect / sync panel — stacked controls with their helptext.
+.tube-google {
+  display: grid;
+  gap: 0.5rem;
+  max-width: 36rem;
+  justify-items: start;
+
+  &__actions {
+    display: grid;
+    gap: 0.4rem;
+    justify-items: start;
+    margin-top: 0.5rem;
+  }
+}
+
+.tube-card {
+  background: var(--tube-surface);
+  border: 1px solid var(--tube-border);
+  border-radius: var(--tube-radius);
+  padding: 0.75rem 1rem;
+}
+
+.tube-subs,
+.tube-queue {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.tube-subs__id {
+  font-weight: 600;
+}
+
+.tube-subs__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.tube-subs__thumb {
+  border-radius: 50%;
+  object-fit: cover;
+  flex: 0 0 auto;
+}
+
+.tube-subs__name {
+  font-weight: 600;
+  flex: 1 1 12rem;
+}
+
+.tube-job-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+
+  &__title {
+    font-weight: 600;
+    flex: 1 1 14rem;
+  }
+}
+
+.tube-badge {
+  display: inline-block;
+  padding: 0.1rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  border: 1px solid var(--tube-border);
+  background: var(--tube-bg);
+  color: var(--tube-text);
+
+  &[data-state='done'] {
+    border-color: var(--tube-success);
+    color: var(--tube-success);
+  }
+  &[data-state='failed'] {
+    border-color: var(--tube-error);
+    color: var(--tube-error);
+  }
+  &[data-state='skipped'] {
+    border-color: var(--tube-warning);
+    color: var(--tube-warning);
+  }
+}
+
+.tube-watch {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+  gap: 1rem;
+
+  &__card {
+    margin: 0;
+  }
+
+  &__title {
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+  }
+
+  &__player {
+    width: 100%;
+    border-radius: var(--tube-radius);
+    background: #000;
+  }
+}

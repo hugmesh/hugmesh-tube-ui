@@ -1,0 +1,92 @@
+<div class="tube-budgets">
+  <h2 id="tube-budgets-title">Storage budgets</h2>
+  <p class="tube-muted" id="tube-budgets-help">
+    Set how much download storage a user may use. When a user's budget is full,
+    new downloads are paused (marked skipped) until you raise it. Budgets are
+    domain-scoped to your brand.
+  </p>
+
+  <form (ngSubmit)="submit()" novalidate aria-labelledby="tube-budgets-title" aria-describedby="tube-budgets-help">
+    <div class="tube-field">
+      <label for="tube-budget-user">User subject</label>
+      <input
+        id="tube-budget-user"
+        name="userSubject"
+        [ngModel]="userSubject()"
+        (ngModelChange)="userSubject.set($event)"
+        data-testid="tube-budget-user"
+        aria-describedby="tube-budget-user-help tube-budget-user-err"
+        [attr.aria-invalid]="userInvalid()"
+        autocomplete="off"
+      />
+      <p class="tube-field__help" id="tube-budget-user-help">
+        The user's stable Casdoor subject (e.g. <code>google:alice&#64;gmail.com</code>).
+      </p>
+      @if (userInvalid()) {
+        <p class="tube-error" id="tube-budget-user-err" role="alert">A user subject is required.</p>
+      }
+    </div>
+
+    <div class="tube-field">
+      <label for="tube-budget-gb">Budget (GB)</label>
+      <input
+        id="tube-budget-gb"
+        name="budgetGb"
+        type="number"
+        min="0"
+        step="0.1"
+        [ngModel]="budgetGb()"
+        (ngModelChange)="budgetGb.set(+$event)"
+        data-testid="tube-budget-gb"
+        aria-describedby="tube-budget-gb-help tube-budget-gb-err"
+        [attr.aria-invalid]="budgetInvalid()"
+      />
+      <p class="tube-field__help" id="tube-budget-gb-help">
+        The storage cap in gigabytes. Must be zero or more (0 = no downloads allowed).
+      </p>
+      @if (budgetInvalid()) {
+        <p class="tube-error" id="tube-budget-gb-err" role="alert">Enter a non-negative budget.</p>
+      }
+    </div>
+
+    <button type="submit" class="tube-btn" [disabled]="busy()" data-testid="tube-budget-submit">
+      {{ busy() ? 'Saving…' : 'Set budget' }}
+    </button>
+  </form>
+
+  @if (error()) {
+    <p class="tube-error" role="alert" data-testid="tube-budget-error">{{ error() }}</p>
+  }
+
+  <section class="tube-budgets__list tube-panel" aria-labelledby="tube-budgets-current-title" data-testid="tube-budgets-current">
+    <h3 id="tube-budgets-current-title">Current budgets / usage</h3>
+    @if (applied().length === 0) {
+      <p class="tube-muted" data-testid="tube-budgets-empty">No budgets set this session yet.</p>
+    } @else {
+      <ul>
+        @for (u of applied(); track trackUser($index, u)) {
+          <li class="tube-budget-row" [attr.data-testid]="'tube-budget-row-' + u.userSubject">
+            <code>{{ u.userSubject }}</code>
+            <span class="tube-muted">
+              {{ formatBytes(u.usedBytes) }} / {{ formatBytes(u.budgetBytes) }}
+            </span>
+            <div
+              class="tube-usage__track"
+              role="progressbar"
+              [attr.aria-label]="'Storage usage for ' + u.userSubject"
+              [attr.aria-valuenow]="usagePercent(u)"
+              aria-valuemin="0"
+              aria-valuemax="100"
+            >
+              <div
+                class="tube-usage__fill"
+                [class.tube-usage__fill--full]="usagePercent(u) >= 100"
+                [style.width.%]="usagePercent(u)"
+              ></div>
+            </div>
+          </li>
+        }
+      </ul>
+    }
+  </section>
+</div>

@@ -1,0 +1,86 @@
+@use 'controls';
+
+.tube-access {
+  max-width: 48rem;
+
+  &__fieldset {
+    border: 1px solid var(--tube-border);
+    border-radius: var(--tube-radius);
+    padding: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  &__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+  }
+
+  &__radio {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  &__submit {
+    margin-top: 1rem;
+  }
+
+  &__result,
+  &__manage {
+    margin-top: 1.5rem;
+
+    dl {
+      display: grid;
+      grid-template-columns: max-content 1fr;
+      gap: 0.25rem 1rem;
+    }
+    dt {
+      font-weight: 600;
+      color: var(--tube-text-muted);
+    }
+    dd {
+      margin: 0;
+    }
+  }
+
+  &__result-actions {
+    margin-top: 1rem;
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  &__list {
+    list-style: none;
+    margin: 0.5rem 0;
+    padding: 0;
+    display: grid;
+    gap: 0.4rem;
+  }
+}
+
+.tube-access-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.tube-badge {
+  display: inline-block;
+  padding: 0.1rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  border: 1px solid var(--tube-border);
+  background: var(--tube-bg);
+
+  &[data-state='banned'] {
+    border-color: var(--tube-error);
+    color: var(--tube-error);
+  }
+  &[data-state='use'] {
+    border-color: var(--tube-success);
+    color: var(--tube-success);
+  }
+}

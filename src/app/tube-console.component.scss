@@ -1,0 +1,42 @@
+@use 'controls';
+
+.tube-head {
+  margin-bottom: 1.5rem;
+
+  &__sub {
+    color: var(--tube-text-muted);
+    max-width: 60ch;
+  }
+}
+
+.tube-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  border-bottom: 1px solid var(--tube-border);
+  padding-bottom: 0.75rem;
+
+  &__item {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.5rem 0.9rem;
+    border-radius: var(--tube-radius);
+    color: var(--tube-text);
+    text-decoration: none;
+    font-weight: 600;
+    border: 1px solid transparent;
+
+    &:hover,
+    &:focus-visible {
+      background: var(--tube-surface);
+      border-color: var(--tube-accent-soft);
+    }
+
+    &--active {
+      background: var(--tube-surface);
+      border-color: var(--tube-accent);
+      color: var(--tube-accent-soft);
+    }
+  }
+}
