@@ -53,8 +53,12 @@
 						],
 						"tsConfig": "tsconfig.app.json",
 						"assets": [
-								{ "glob": "**/*", "input": "src/assets", "output": "assets" }
-							],
+							{
+								"glob": "**/*",
+								"input": "src/assets",
+								"output": "assets"
+							}
+						],
 						"styles": [
 							"src/styles.scss"
 						],
@@ -66,7 +70,15 @@
 					},
 					"configurations": {
 						"production": {
-							"outputHashing": "all"
+							"outputHashing": "all",
+							"optimization": {
+								"scripts": true,
+								"styles": {
+									"minify": true,
+									"inlineCritical": false
+								},
+								"fonts": true
+							}
 						},
 						"development": {
 							"optimization": false,
@@ -94,8 +106,12 @@
 						"tsConfig": "tsconfig.spec.json",
 						"karmaConfig": "karma.conf.js",
 						"assets": [
-								{ "glob": "**/*", "input": "src/assets", "output": "assets" }
-							],
+							{
+								"glob": "**/*",
+								"input": "src/assets",
+								"output": "assets"
+							}
+						],
 						"styles": [
 							"src/styles.scss"
 						],
