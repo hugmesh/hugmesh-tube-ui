@@ -3,7 +3,7 @@ import { RouterOutlet } from '@angular/router';
 
 /**
  * Standalone dev shell for the Tube remote. Only used when this remote is run on
- * its own (`ng serve tube`); in production the hugmesh.systems host federates
+ * its own (`ng serve tube`); in production the hugmesh.net host federates
  * `./Tube` (TUBE_ROUTES) directly and mounts them at /tube — this shell is not
  * loaded.
  */

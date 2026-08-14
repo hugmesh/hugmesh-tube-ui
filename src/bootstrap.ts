@@ -3,7 +3,7 @@
  * with the TUBE_ROUTES at the root so the remote is browsable standalone
  * via `ng serve tube`.
  *
- * In production this file is NOT loaded — the hugmesh.systems host
+ * In production this file is NOT loaded — the hugmesh.net host
  * federates `./Tube` (TUBE_ROUTES) directly at the /tube mount.
  *
  * {@link provideHttpClient} with `withFetch()` is present for parity with

@@ -1,7 +1,7 @@
 {
   "name": "@hugmesh/tube",
   "version": "0.1.0",
-  "description": "Tube (LocalTube) management UI — native-federation remote (exposes ./Tube at remoteEntry.json on :8080), role-gated subscribed-channel download console over hugmesh-tube-bff-api; mounted by the hugmesh.systems host at /tube.",
+  "description": "Tube (LocalTube) management UI — native-federation remote (exposes ./Tube at remoteEntry.json on :8080), role-gated subscribed-channel download console over hugmesh-tube-bff-api; mounted by the hugmesh.net host at /tube.",
   "license": "MIT",
   "private": true,
   "scripts": {

@@ -1,7 +1,7 @@
 # hugmesh-tube-ui
 
 The **Tube (LocalTube) management UI** is an Angular **native-federation remote**
-that the [`hugmesh.systems`](https://github.com/hugmesh-net/hugmesh.systems) host
+that the [`hugmesh-host-shell`](https://github.com/hugmesh-net/hugmesh-host-shell) host
 shell mounts at **`/tube`**. It is the human-facing console for the Tube optional
 service, which lets users subscribe to YouTube channels and schedule local
 downloads for in-platform viewing. The UI sits on top of
@@ -20,7 +20,7 @@ alongside it:
 
 | repo | role |
 | --- | --- |
-| [`hugmesh.systems`](https://github.com/hugmesh-net/hugmesh.systems) | host shell that mounts this and every other remote |
+| [`hugmesh-host-shell`](https://github.com/hugmesh-net/hugmesh-host-shell) | host shell that mounts this and every other remote |
 | [`hugmesh-tube-bff-api`](https://github.com/hugmesh-net/hugmesh-tube-bff-api) | the backend-for-frontend this UI talks to (`/bff/tube/**`) |
 | [`hugmesh-auth-core`](https://github.com/hugmesh-net/hugmesh-auth-core) | shared account/session/MFA/Casdoor-admin infrastructure |
 | [`login-ui`](https://github.com/hugmesh-net/login-ui) | native login form used platform-wide |
@@ -80,7 +80,7 @@ Concretely, this remote:
   route-access gate. It is not a public surface; the gateway enforces the role
   check before the host shell ever fetches the remote entry.
 
-`federation-base.js` is **byte-identical** to the `hugmesh.systems` host — it
+`federation-base.js` is **byte-identical** to the `hugmesh.net` host — it
 is the single source of truth for the shared-deps surface and the RxJS skip list.
 Keeping it identical prevents this remote from drifting out of sync with the host
 or with other HugMesh remotes, which would break module sharing at runtime.
@@ -371,7 +371,7 @@ to GHCR — it stays fully inert until someone triggers it by hand.
 
 Shipped and on `main` today:
 
-- **Native-federation remote** mounted at `/tube` by the `hugmesh.systems`
+- **Native-federation remote** mounted at `/tube` by the `hugmesh.net`
   host, `federation-base.js` byte-identical to the host's shared-deps surface.
 - **Role-aware console:** My Tube (Google connect/sync panel, subscriptions,
   queue, usage, enqueue, in-platform `<video>` viewing via sign-on-demand) for
@@ -422,7 +422,7 @@ Platform-wide efforts that will touch this console; none is wired here today:
   (`TubeAccessService` currently has no notification call — only an unrelated
   `"@system"` fallback-actor-name string). The platform's `SseNotificationBus`
   (per-user multicast in `user-bff`) and the SSE notification toast
-  (`NotificationToastService`, `hugmesh.systems` host shell) are already
+  (`NotificationToastService`, `hugmesh.net` host shell) are already
   shipped, so tube-ui already inherits notification display through the host
   shell with no UI changes needed here — the remaining gap is purely on the
   tube-bff emission side.

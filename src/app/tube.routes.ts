@@ -7,7 +7,7 @@ import { TubeForbiddenComponent } from './tube-forbidden.component';
 import { tubeReadGuard, tubeManageGuard } from './tube.guard';
 
 /**
- * The exposed `./Tube` module — mounted by the hugmesh.systems host at the
+ * The exposed `./Tube` module — mounted by the hugmesh.net host at the
  * apex path /tube (the federation-api tube module row: mountAt '/tube',
  * remote_entry_url http://hugmesh-tube-ui:8080/remoteEntry.json,
  * requiresRole 'tube', visibility internal). The host gates the WHOLE /tube mount

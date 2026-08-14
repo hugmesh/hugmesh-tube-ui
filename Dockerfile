@@ -1,6 +1,6 @@
 # hugmesh-tube-ui — builds the Tube (LocalTube) management native-federation
 # REMOTE (src → dist/tube/browser) and serves it via nginx with CORS so the
-# hugmesh.systems host can fetch its remoteEntry.json cross-origin.
+# hugmesh.net host can fetch its remoteEntry.json cross-origin.
 #
 # Serves on :8080 to MATCH the federation-api tube module registration:
 #   remote_entry_url = http://hugmesh-tube-ui:8080/remoteEntry.json
