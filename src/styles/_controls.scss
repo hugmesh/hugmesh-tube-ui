@@ -10,7 +10,12 @@
   padding: 0.5rem 1rem;
   border-radius: var(--tube-radius);
   background: var(--tube-accent);
-  color: #ffffff;
+  // Was a hardcoded #ffffff, which only held for the shipped violet accent: on a
+  // themed mesh this is white-on-whatever, and measured across the shipped presets
+  // it failed AA on 24 of 38 (1.16:1 on the nonbinary flag's #fcf434, 1.25:1 on
+  // high-contrast's #00ffff — an invisible label on a filled button). --tube-accent-on
+  // carries the luminance-picked twin, still falling back to #ffffff when unthemed.
+  color: var(--tube-accent-on);
   border: 1px solid var(--tube-accent);
   text-decoration: none;
   font-weight: 600;

@@ -35,6 +35,13 @@
   --tube-text-muted:  var(--hug-text-muted);
   --tube-accent:      var(--hug-accent);
   --tube-accent-soft: var(--hug-accent-soft);
+  /* Text drawn ON a filled --tube-accent. --hug-accent-on is the platform token
+   * (pure #000/#fff, auto-picked by luminance, AA-guaranteed for any sRGB
+   * accent); the #ffffff fallback is the literal .tube-btn hardcoded before that
+   * token existed, so an unthemed mesh still renders byte-identically. Never
+   * re-derive this here — the ONE implementation lives in the generator's
+   * theme.py and every UI just reads the token. */
+  --tube-accent-on:   var(--hug-accent-on, #ffffff);
   --tube-success:     var(--hug-success);
   --tube-warning:     var(--hug-warning);
   --tube-error:       var(--hug-error);
