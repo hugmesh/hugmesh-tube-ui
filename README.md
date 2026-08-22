@@ -1,11 +1,11 @@
 # hugmesh-tube-ui
 
 The **Tube (LocalTube) management UI** is an Angular **native-federation remote**
-that the [`hugmesh-host-shell`](https://github.com/hugmesh-net/hugmesh-host-shell) host
+that the [`hugmesh-host-shell`](https://github.com/hugmesh/hugmesh-host-shell) host
 shell mounts at **`/tube`**. It is the human-facing console for the Tube optional
 service, which lets users subscribe to YouTube channels and schedule local
 downloads for in-platform viewing. The UI sits on top of
-[`hugmesh-tube-bff-api`](https://github.com/hugmesh-net/hugmesh-tube-bff-api) and
+[`hugmesh-tube-bff-api`](https://github.com/hugmesh/hugmesh-tube-bff-api) and
 surfaces three functional areas: the per-user download work-queue,
 storage-budget management, and the use-access overlay (grant/timeout/ban
 controls for admins).
@@ -20,13 +20,13 @@ alongside it:
 
 | repo | role |
 | --- | --- |
-| [`hugmesh-host-shell`](https://github.com/hugmesh-net/hugmesh-host-shell) | host shell that mounts this and every other remote |
-| [`hugmesh-tube-bff-api`](https://github.com/hugmesh-net/hugmesh-tube-bff-api) | the backend-for-frontend this UI talks to (`/bff/tube/**`) |
-| [`hugmesh-auth-core`](https://github.com/hugmesh-net/hugmesh-auth-core) | shared account/session/MFA/Casdoor-admin infrastructure |
-| [`login-ui`](https://github.com/hugmesh-net/login-ui) | native login form used platform-wide |
-| [`user-bff`](https://github.com/hugmesh-net/user-bff) | owns login/session/token-custody logic |
-| [`hugmesh-ui-standard`](https://github.com/hugmesh-net/hugmesh-ui-standard) | the org's baseline UI-remote template |
-| [`hugmesh-generator`](https://github.com/hugmesh-net/hugmesh-generator) | scaffolding + shared CI building blocks (including the pen-test harness this repo consumes) |
+| [`hugmesh-host-shell`](https://github.com/hugmesh/hugmesh-host-shell) | host shell that mounts this and every other remote |
+| [`hugmesh-tube-bff-api`](https://github.com/hugmesh/hugmesh-tube-bff-api) | the backend-for-frontend this UI talks to (`/bff/tube/**`) |
+| [`hugmesh-auth-core`](https://github.com/hugmesh/hugmesh-auth-core) | shared account/session/MFA/Casdoor-admin infrastructure |
+| [`login-ui`](https://github.com/hugmesh/login-ui) | native login form used platform-wide |
+| [`user-bff`](https://github.com/hugmesh/user-bff) | owns login/session/token-custody logic |
+| [`hugmesh-ui-standard`](https://github.com/hugmesh/hugmesh-ui-standard) | the org's baseline UI-remote template |
+| [`hugmesh-generator`](https://github.com/hugmesh/hugmesh-generator) | scaffolding + shared CI building blocks (including the pen-test harness this repo consumes) |
 
 ## Versions
 
@@ -38,7 +38,7 @@ alongside it:
 
 > **Angular version:** This repo is on Angular 22.x + native-federation 22.x,
 > which is the direction all HugMesh UI remotes are moving toward. Some sibling
-> remotes — including the [`hugmesh-ui-standard`](https://github.com/hugmesh-net/hugmesh-ui-standard)
+> remotes — including the [`hugmesh-ui-standard`](https://github.com/hugmesh/hugmesh-ui-standard)
 > baseline template — are still on 19.x and expected to catch up over time.
 
 ## Federation contract
@@ -140,13 +140,13 @@ This remote does not own any login, token-exchange, or session logic — it ride
 the HugMesh SSO model end to end:
 
 - **Casdoor** is the SSO identity provider, but it is **internal-only** and
-  never redirects the browser. [`login-ui`](https://github.com/hugmesh-net/login-ui)
+  never redirects the browser. [`login-ui`](https://github.com/hugmesh/login-ui)
   renders a native login form that POSTs credentials directly to
-  [`user-bff`](https://github.com/hugmesh-net/user-bff)'s own `/bff/login`-style
+  [`user-bff`](https://github.com/hugmesh/user-bff)'s own `/bff/login`-style
   endpoint; `user-bff` performs the server-side Casdoor exchange and holds
   per-session JWT custody/refresh. (Login/session/account logic lives in
   `user-bff`, with shared account/session/MFA/Casdoor-admin infrastructure in
-  [`hugmesh-auth-core`](https://github.com/hugmesh-net/hugmesh-auth-core);
+  [`hugmesh-auth-core`](https://github.com/hugmesh/hugmesh-auth-core);
   account/session data lives in `admin-bff-db`, reached by `user-bff` over
   mTLS.)
 - The browser only ever holds an **opaque `bff_`-prefixed session** — a user
@@ -347,7 +347,7 @@ registry. The pipeline stages are:
 - **`e2e`** — `e2e:bdd`, an offline compile/discover proof; non-blocking.
 - **`build:image`** — builds and pushes the container image.
 - **`pentest`** — the centralized OWASP pen-test stage, `include:`d from
-  [`hugmesh-generator`](https://github.com/hugmesh-net/hugmesh-generator)'s
+  [`hugmesh-generator`](https://github.com/hugmesh/hugmesh-generator)'s
   `tests/pentest/ci/pentest-stage.gitlab-ci.yml`, with a thin `pentest:sca`
   (OWASP Dependency-Check, self-contained over this repo's checkout) and
   `pentest:dast` (authenticated ZAP DAST baseline + nuclei boundary templates).
