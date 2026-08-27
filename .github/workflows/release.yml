@@ -32,7 +32,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/hugmesh-net/hugmesh-tube-ui
+          images: ghcr.io/hugmesh/hugmesh-tube-ui
           tags: |
             type=sha
             type=ref,event=branch
