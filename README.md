@@ -385,14 +385,40 @@ Shipped and on `main` today:
   build with no network access and no running BFF required.
 - **e2e harness:** a Playwright + BDD (Gherkin) harness lives in-tree but is
   not yet wired into CI as a required gate.
-- **Baseline nginx security headers** (`nginx.conf`): `X-Content-Type-Options:
-  nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy:
-  strict-origin-when-cross-origin`, and HSTS — emitted with `always` (so they
-  also cover error responses) and re-declared per `location` so the SPA,
-  federation bundles, and `/healthz` all keep them. Stricter policies (CSP,
-  COEP/CORP, Permissions-Policy) are deliberately deferred pending per-UI
-  tuning and live-cluster browser validation.
-- **CI on GitLab:** `test` + `e2e` + `build:image` + the centralized OWASP
+- **Full nginx response-header set** (`nginx.conf`), emitted with `always` (so
+  they also cover error responses) and re-declared in **every** `location` —
+  nginx's `add_header` does not merge, so a block that declares one header of
+  its own drops all the inherited ones:
+  - Baseline: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
+    `Referrer-Policy: strict-origin-when-cross-origin`, HSTS.
+  - **CSP**, nonce-based (`map $request_id $cspnonce` + a `sub_filter` that
+    stamps the nonce onto every `<script>` of index.html). No `unsafe-inline`
+    in `script-src`; `blob:` is REQUIRED in script/style/connect-src because
+    es-module-shims runs the federation bundle from `blob:` URLs.
+  - **`Cross-Origin-Opener-Policy: same-origin`** — safe because the
+    Google-connect hop is a top-level `window.location.assign`, never a popup.
+  - **`Cross-Origin-Embedder-Policy: credentialless`**, deliberately **not**
+    `require-corp`: the subscriptions panel loads channel avatars straight from
+    Google's CDN as no-cors `<img>`, and `require-corp` blocks every one of them
+    (measured:
+    `net::ERR_BLOCKED_BY_RESPONSE.NotSameOriginAfterDefaultedToSameOriginByCoep`).
+    `credentialless` keeps them and still yields `crossOriginIsolated === true`.
+  - **`Cross-Origin-Resource-Policy: cross-origin`**, deliberately permissive:
+    this container's job is to be loaded by another document, and this header is
+    the "CORP-tagging" that `hugmesh-gateway`'s SecurityConfig names as the
+    precondition for ever enabling COEP at the front door. Framing is refused
+    independently (`X-Frame-Options` + `frame-ancestors 'none'`).
+  - **`Permissions-Policy`** denying every powerful feature Tube has no surface
+    for, while keeping `autoplay=(self)`, `fullscreen=(self)` and
+    `picture-in-picture=(self)` — the `<video>` player sets `autoplay` and the
+    browser's own `controls` chrome exposes the other two, so `()` on any of the
+    three breaks the watch page.
+  - Guarded by `npm run test:headers`
+    (`tests/security-headers.test.mjs`, zero dependencies): it walks every
+    `server`/`location` block, asserts each header and value, pins the nonce
+    chain, and fails on the "obviously stricter" mutations above. Blocking in
+    CI as `test:headers`, and `build:image` depends on it.
+- **CI on GitLab:** `test` + `test:headers` + `e2e` + `build:image` + the centralized OWASP
   `pentest` stage (SCA + ZAP DAST baseline, non-blocking; see CI/CD above for
   the current state of that first pipeline run).
 
