@@ -415,9 +415,18 @@ Shipped and on `main` today:
     three breaks the watch page.
   - Guarded by `npm run test:headers`
     (`tests/security-headers.test.mjs`, zero dependencies): it walks every
-    `server`/`location` block, asserts each header and value, pins the nonce
-    chain, and fails on the "obviously stricter" mutations above. Blocking in
+    `server` block and every `location` — **including nested ones**, because
+    `add_header`'s non-merging rule applies at every level — asserts each
+    header and value, pins the CSP **verbatim** (a widening such as `img-src *`
+    or a host-source next to the nonce is silent in production and is the
+    failure this catches), pins the `$cspnonce` map's `default $request_id`
+    body, and fails on the "obviously stricter" mutations above. Blocking in
     CI as `test:headers`, and `build:image` depends on it.
+    - What it does **not** cover: anything only a running server can show —
+      that a header is honoured, that the nonce reaches the browser, that a
+      cross-origin avatar still loads. Those are verified by running the image
+      (`nginx -t` plus a curl of every path, and a headless-Chromium load),
+      recorded in the PR for issue #3, not by this suite.
 - **CI on GitLab:** `test` + `test:headers` + `e2e` + `build:image` + the centralized OWASP
   `pentest` stage (SCA + ZAP DAST baseline, non-blocking; see CI/CD above for
   the current state of that first pipeline run).

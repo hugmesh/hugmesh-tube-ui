@@ -72,7 +72,16 @@ function blockBody(src, re, from = 0) {
   return null;
 }
 
-/** All `location <match> { ... }` blocks directly inside `body`. */
+/**
+ * Every `location <match> { ... }` block inside `body`, INCLUDING nested ones.
+ *
+ * A nested location is not a cosmetic case: nginx applies `add_header`'s
+ * non-merging rule at EVERY level, so a `location ~* \.(?:js|mjs|css)$ { ... }`
+ * added inside `location /` to set a cache header — the single most common edit
+ * an SPA nginx.conf receives — silently drops the entire inherited security set
+ * for every JS/CSS bundle this remote serves. Walking only the top level would
+ * bless exactly that.
+ */
 function locationBlocks(body) {
   const blocks = [];
   const re = /location\s+([^{]+?)\s*\{/g;
@@ -85,7 +94,12 @@ function locationBlocks(body) {
       else if (body[i] === '}') {
         depth--;
         if (depth === 0) {
-          blocks.push({ match: m[1].trim(), body: body.slice(openIdx + 1, i) });
+          const inner = body.slice(openIdx + 1, i);
+          blocks.push({ match: m[1].trim(), body: inner });
+          // Recurse: a nested location ALSO drops every inherited add_header.
+          for (const n of locationBlocks(inner)) {
+            blocks.push({ match: `${m[1].trim()} > ${n.match}`, body: n.body });
+          }
           re.lastIndex = i;
           break;
         }
@@ -125,15 +139,29 @@ function addHeaders(body) {
   return headers;
 }
 
-const SERVER = blockBody(CONF, /server\s*\{/);
-assert.ok(SERVER, 'nginx.conf must contain a server block');
-const LOCATIONS = locationBlocks(SERVER.body);
+// EVERY server block, not just the first: an appended `server { listen 8081; }`
+// serving responses with no security headers at all must not pass this suite.
+const SERVERS = [];
+for (let from = 0; ; ) {
+  const s = blockBody(CONF, /server\s*\{/, from);
+  if (!s) break;
+  SERVERS.push(s);
+  from = s.end + 1;
+}
+assert.ok(SERVERS.length >= 1, 'nginx.conf must contain a server block');
 
 /** Every block nginx can serve a response from: server scope + each location. */
-const BLOCKS = [
-  { label: 'server scope', headers: addHeaders(SERVER.body), body: SERVER.body },
-  ...LOCATIONS.map((l) => ({ label: `location ${l.match}`, headers: addHeaders(l.body), body: l.body })),
-];
+const BLOCKS = SERVERS.flatMap((srv, n) => {
+  const tag = SERVERS.length > 1 ? ` #${n + 1}` : '';
+  return [
+    { label: `server${tag} scope`, headers: addHeaders(srv.body), body: srv.body },
+    ...locationBlocks(srv.body).map((l) => ({
+      label: `server${tag} location ${l.match}`,
+      headers: addHeaders(l.body),
+      body: l.body,
+    })),
+  ];
+});
 
 const get = (block, name) =>
   block.headers.find((h) => h.name.toLowerCase() === name.toLowerCase());
@@ -147,6 +175,10 @@ const REQUIRED = {
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'DENY',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
+  // In REQUIRED, not asserted only on `location /`: the two theme-CSS blocks
+  // shipped without HSTS until this was pinned, while the README described the
+  // baseline set as re-declared in EVERY location.
+  'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
   // Issue #3 — the three that were outstanding.
   'Cross-Origin-Opener-Policy': 'same-origin',
   'Cross-Origin-Embedder-Policy': 'credentialless',
@@ -158,6 +190,16 @@ const REQUIRED = {
     'picture-in-picture=(self), publickey-credentials-get=(), screen-wake-lock=(), serial=(), ' +
     'usb=(), xr-spatial-tracking=()',
 };
+
+/**
+ * The CSP, verbatim. Pinned rather than pattern-matched — see the widening guard
+ * in the nonce-contract test for why presence checks are not enough.
+ */
+const CSP_EXACT =
+  "default-src 'self'; script-src 'self' 'nonce-$cspnonce' blob:; style-src 'self' " +
+  "'unsafe-inline' blob:; img-src 'self' data: https:; font-src 'self' data:; " +
+  "media-src 'self'; connect-src 'self' blob: https:; base-uri 'self'; object-src 'none'; " +
+  "frame-ancestors 'none'";
 
 test('every server/location block declares the full security-header set', () => {
   assert.ok(BLOCKS.length >= 5, `expected server scope + >=4 locations, saw ${BLOCKS.length}`);
@@ -185,14 +227,27 @@ test('every server/location block declares the full security-header set', () => 
 });
 
 test('the CSP nonce contract is intact (a blank page is the failure mode)', () => {
-  assert.match(
-    CONF,
-    /map\s+\$request_id\s+\$cspnonce\s*\{/,
+  const nonceMap = blockBody(CONF, /map\s+\$request_id\s+\$cspnonce\s*\{/);
+  assert.ok(
+    nonceMap,
     'the `map $request_id $cspnonce` block is gone: $cspnonce would expand to the empty string, ' +
       'the CSP would carry `nonce-` and NOTHING would execute — a blank page at HTTP 200.',
   );
+  // The map's BODY, not just its existence. Asserting only that the block is
+  // present cannot see the two one-token edits that break it:
+  //   default "";        -> every CSP carries `nonce-`, no <script> matches,
+  //                         Angular never bootstraps, /tube/ is blank at HTTP 200.
+  //   default "abc123";  -> ONE nonce reused across every response, which is
+  //                         'unsafe-inline' the moment anyone reads one body.
+  assert.match(
+    nonceMap.body,
+    /default\s+\$request_id\s*;/,
+    'the $cspnonce map no longer resolves to $request_id. An EMPTY default makes every CSP ' +
+      'carry `nonce-`, nothing executes and /tube/ is a blank page at HTTP 200; a CONSTANT ' +
+      "default is one nonce reused across every response, i.e. 'unsafe-inline' with extra steps.",
+  );
 
-  const app = BLOCKS.find((b) => b.label === 'location /');
+  const app = BLOCKS.find((b) => b.label.endsWith('location /'));
   assert.ok(app, 'the SPA/federation location / is gone');
 
   const csp = get(app, 'Content-Security-Policy');
@@ -218,6 +273,28 @@ test('the CSP nonce contract is intact (a blank page is the failure mode)', () =
   assert.match(csp.value, /frame-ancestors\s+'none'/, 'frame-ancestors must stay none.');
   assert.match(csp.value, /object-src\s+'none'/, 'object-src must stay none.');
   assert.match(csp.value, /base-uri\s+'self'/, 'base-uri must stay self.');
+
+  // WIDENING GUARD. Every assertion above is a PRESENCE check — none of them can
+  // see a directive that GREW a source. Measured: with only those checks,
+  // `img-src *`, `default-src *`, `connect-src *`, `media-src 'self' blob:` and
+  // `script-src 'self' 'nonce-$cspnonce' blob: https:` ALL pass. That last one is
+  // the dangerous one: in CSP3 a host-source alongside a nonce makes the nonce
+  // DECORATIVE, so any https origin could serve script into /tube/ — through a
+  // guard whose own failure text says script-src is pinned. So pin it verbatim.
+  // Change this literal deliberately, in the same commit as the nginx.conf edit.
+  assert.equal(
+    csp.value,
+    CSP_EXACT,
+    'the Content-Security-Policy changed. Every source list here is load-bearing and the ' +
+      'failure mode of a WIDENING is silent — the app keeps working, the protection is gone. ' +
+      'If the change is deliberate, update CSP_EXACT in the same commit and say in the PR ' +
+      'which directive grew and why.',
+  );
+  assert.ok(
+    csp.always,
+    'the CSP add_header lost `always`: 4xx/5xx responses would ship with no CSP at all, and ' +
+      'the SPA fallback serves index.html through error paths.',
+  );
 
   // The nonce is only real if it is actually injected into index.html.
   assert.match(app.body, /sub_filter_once\s+off\s*;/,
@@ -331,7 +408,7 @@ test('every Permissions-Policy feature name is one Chromium recognises', () => {
 });
 
 test('HSTS and the federation CORS grant survive on the blocks that carry them', () => {
-  const app = BLOCKS.find((b) => b.label === 'location /');
+  const app = BLOCKS.find((b) => b.label.endsWith('location /'));
   const hsts = get(app, 'Strict-Transport-Security');
   assert.ok(hsts?.value.startsWith('max-age=31536000'), 'location / lost HSTS');
   const acao = get(app, 'Access-Control-Allow-Origin');
