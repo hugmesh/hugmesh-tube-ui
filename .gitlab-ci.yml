@@ -81,6 +81,37 @@ test:
     expire_in: 7 days
 
 # -----------------------------------------------------------------------------
+# test:headers — the nginx.conf RESPONSE-HEADER contract (issue #3).
+#
+# Separate from `test` on purpose. The karma suite exercises src/ in a browser
+# and can say nothing at all about nginx.conf: the CSP nonce chain, the
+# Cross-Origin-* trio and Permissions-Policy only exist in the served image, and
+# nginx's `add_header` silently DROPS every inherited header from a block that
+# declares one of its own — so the way this contract rots is a new `location`,
+# not a deleted directive. tests/security-headers.test.mjs walks every block and
+# asserts the whole set, and carries the mutation guards for the values that are
+# deliberately NOT the strictest available (COEP credentialless, CORP
+# cross-origin, autoplay/fullscreen/picture-in-picture kept at (self)).
+#
+# BLOCKING, and cheap enough to be: node's built-in test runner, zero
+# dependencies, no npm ci, read-only checkout, ~0.1s.
+# -----------------------------------------------------------------------------
+test:headers:
+  stage: test
+  needs: []
+  tags: [hugmesh-x86, privileged]
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_TAG'
+  script:
+    # sh -c with the glob single-quoted: node expands the `**` pattern itself,
+    # and the runner's shell must not get a chance to mangle it first.
+    - >-
+      docker run --rm -v "${CI_PROJECT_DIR}:/src:ro" -w /src node:24-alpine
+      sh -c 'node --test "tests/**/*.test.mjs"'
+
+# -----------------------------------------------------------------------------
 # e2e:bdd — Playwright + playwright-bdd Gherkin harness for the tube-ui remote
 # (e2e/). WAVE 2b SHIPS DARK: every scenario that needs a live stack is tagged
 # `@cluster` and the default playwright config filters them out
@@ -122,7 +153,9 @@ e2e:bdd:
     expire_in: 7 days
 
 build:image:
-  needs: [test]
+  needs:
+    - test
+    - "test:headers"
   stage: build
   tags: [hugmesh-x86, privileged]
   rules:
