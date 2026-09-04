@@ -413,6 +413,15 @@ Shipped and on `main` today:
     `picture-in-picture=(self)` — the `<video>` player sets `autoplay` and the
     browser's own `controls` chrome exposes the other two, so `()` on any of the
     three breaks the watch page.
+  - **`/healthz` declares its media type with `default_type`, not
+    `add_header Content-Type`.** `add_header` APPENDS, so the endpoint was
+    answering with the field twice — `application/octet-stream` (nginx's
+    default, already set when the header filter runs) *then* `text/plain` — and
+    `X-Content-Type-Options: nosniff` on the same response pins the browser to
+    the **first**, i.e. a download prompt for a three-byte `ok`. Found by
+    curling the running container rather than by reading the file; guarded both
+    ways (no `add_header Content-Type` anywhere, and `/healthz` must still
+    declare `default_type text/plain`).
   - Guarded by `npm run test:headers`
     (`tests/security-headers.test.mjs`, zero dependencies): it walks every
     `server` block and every `location` — **including nested ones**, because

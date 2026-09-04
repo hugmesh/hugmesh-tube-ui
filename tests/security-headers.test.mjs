@@ -407,6 +407,49 @@ test('every Permissions-Policy feature name is one Chromium recognises', () => {
   }
 });
 
+test('no block sets Content-Type with add_header (it APPENDS, so nosniff reads the wrong one)', () => {
+  // MEASURED, not theoretical. `location = /healthz` shipped
+  // `add_header Content-Type text/plain;` and the live response carried the
+  // field TWICE — `application/octet-stream` (nginx's default_type, already set
+  // by the time the header filter runs) followed by `text/plain` — because
+  // add_header APPENDS and never replaces. That is a real bug specifically
+  // BECAUSE this file also sends `X-Content-Type-Options: nosniff` on the same
+  // response: nosniff tells the browser to trust the declared type instead of
+  // sniffing, and the type it trusts is the FIRST one. So the hardening header
+  // and the Content-Type header combined to turn a three-byte `ok` health probe
+  // into an octet-stream download. The fix is `default_type`, which REPLACES.
+  //
+  // Verified against nginxinc/nginx-unprivileged:1.27-alpine serving this exact
+  // file: with add_header, 2 Content-Type headers; with default_type, 1
+  // (`text/plain`), body still `ok`, all eight security headers still present.
+  for (const block of BLOCKS) {
+    const ct = get(block, 'Content-Type');
+    assert.ok(
+      !ct,
+      `${block.label} sets Content-Type with add_header ("${ct?.value}"). add_header APPENDS to ` +
+        `the Content-Type nginx has already derived from default_type, so the response ships two ` +
+        `Content-Type fields and \`X-Content-Type-Options: nosniff\` pins the browser to the ` +
+        `FIRST (wrong) one. Use \`default_type\` in this block instead — it replaces.`,
+    );
+  }
+});
+
+test('the health endpoint still declares its media type (via default_type)', () => {
+  // The companion to the guard above: "no add_header Content-Type" must not be
+  // satisfiable by simply DELETING the type declaration, which would leave
+  // /healthz answering `application/octet-stream` — the same wrong answer,
+  // reached by removing the fix instead of the bug.
+  const hz = BLOCKS.find((b) => b.label.endsWith('location = /healthz'));
+  assert.ok(hz, 'the /healthz location is gone');
+  assert.match(
+    hz.body,
+    /default_type\s+text\/plain\s*;/,
+    'location = /healthz no longer declares `default_type text/plain;`. Without it the ' +
+      "endpoint answers nginx's stock application/octet-stream, and nosniff makes the browser " +
+      'honour that — a download prompt for a three-byte health probe.',
+  );
+});
+
 test('HSTS and the federation CORS grant survive on the blocks that carry them', () => {
   const app = BLOCKS.find((b) => b.label.endsWith('location /'));
   const hsts = get(app, 'Strict-Transport-Security');
