@@ -73,21 +73,38 @@ function blockBody(src, re, from = 0) {
 }
 
 /**
- * Every `location <match> { ... }` block inside `body`, INCLUDING nested ones.
+ * Every nested block inside `body` that nginx can serve a DIFFERENT header set
+ * from, recursively: `location <match> { ... }` AND `if (<cond>) { ... }`.
  *
  * A nested location is not a cosmetic case: nginx applies `add_header`'s
- * non-merging rule at EVERY level, so a `location ~* \.(?:js|mjs|css)$ { ... }`
- * added inside `location /` to set a cache header — the single most common edit
- * an SPA nginx.conf receives — silently drops the entire inherited security set
- * for every JS/CSS bundle this remote serves. Walking only the top level would
- * bless exactly that.
+ * non-merging rule at EVERY configuration level, so a
+ * `location ~* \.(?:js|mjs|css)$ { ... }` added inside `location /` to set a
+ * cache header — the single most common edit an SPA nginx.conf receives —
+ * silently drops the entire inherited security set for every JS/CSS bundle this
+ * remote serves. Walking only the top level would bless exactly that.
+ *
+ * `if` blocks are walked for the SAME reason, and this was a real hole: an
+ * earlier revision of this file walked `location` only, so
+ *   location = /healthz { if ($arg_dl) { add_header Content-Type application/octet-stream; } }
+ * passed the whole suite and passed `nginx -t`. An `if` block is its own
+ * configuration level, so an `add_header` inside one REPLACES the inherited set
+ * for every request that matches the condition — which makes it an evasion of
+ * the entire contract, not just of the Content-Type guard. MEASURED: with
+ * `if ($arg_dl) { add_header X-Frame-Options "SAMEORIGIN" always; }` inside
+ * `location = /healthz`, `GET /healthz?dl=1` answers with X-Frame-Options
+ * SAMEORIGIN and NONE of the other seven security headers, while plain
+ * `GET /healthz` keeps all eight.
  */
-function locationBlocks(body) {
+function nestedBlocks(body) {
   const blocks = [];
-  const re = /location\s+([^{]+?)\s*\{/g;
+  // Two block openers, one scan, so ordering and nesting stay consistent:
+  //   group 1 = a location's match spec, group 2 = an if's parenthesised test.
+  const re = /(?:\blocation\s+([^{]+?)|\bif\s*(\([^)]*\)))\s*\{/g;
   let m;
   while ((m = re.exec(body)) !== null) {
     const openIdx = m.index + m[0].length - 1;
+    const kind = m[1] !== undefined ? 'location' : 'if';
+    const label = kind === 'location' ? `location ${m[1].trim()}` : `if ${m[2]}`;
     let depth = 0;
     for (let i = openIdx; i < body.length; i++) {
       if (body[i] === '{') depth++;
@@ -95,10 +112,10 @@ function locationBlocks(body) {
         depth--;
         if (depth === 0) {
           const inner = body.slice(openIdx + 1, i);
-          blocks.push({ match: m[1].trim(), body: inner });
-          // Recurse: a nested location ALSO drops every inherited add_header.
-          for (const n of locationBlocks(inner)) {
-            blocks.push({ match: `${m[1].trim()} > ${n.match}`, body: n.body });
+          blocks.push({ kind, match: label, body: inner });
+          // Recurse: a nested block ALSO drops every inherited add_header.
+          for (const n of nestedBlocks(inner)) {
+            blocks.push({ kind: n.kind, match: `${label} > ${n.match}`, body: n.body });
           }
           re.lastIndex = i;
           break;
@@ -150,21 +167,49 @@ for (let from = 0; ; ) {
 }
 assert.ok(SERVERS.length >= 1, 'nginx.conf must contain a server block');
 
-/** Every block nginx can serve a response from: server scope + each location. */
+/**
+ * Every block nginx can serve a response from: server scope + each nested
+ * `location` / `if`.
+ *
+ * `inherits` marks a block that declares NO add_header of its own. nginx then
+ * hands it the enclosing level's set unchanged, so requiring the full set there
+ * would be a false failure. It is set only for `if` blocks: a `location` is
+ * still required to re-declare the set unconditionally, because this file's
+ * documented convention is that every location repeats it and because a
+ * location that inherits today is one `add_header` away from silently dropping
+ * all eight tomorrow. An `if` with no add_header (`if ($request_method = POST)
+ * { return 405; }`) is a legitimate shape with nothing to re-declare.
+ */
 const BLOCKS = SERVERS.flatMap((srv, n) => {
   const tag = SERVERS.length > 1 ? ` #${n + 1}` : '';
   return [
     { label: `server${tag} scope`, headers: addHeaders(srv.body), body: srv.body },
-    ...locationBlocks(srv.body).map((l) => ({
-      label: `server${tag} location ${l.match}`,
-      headers: addHeaders(l.body),
-      body: l.body,
-    })),
+    ...nestedBlocks(srv.body).map((l) => {
+      const headers = addHeaders(l.body);
+      return {
+        label: `server${tag} ${l.match}`,
+        headers,
+        body: l.body,
+        // `kind` is the INNERMOST block's kind, so a nested
+        // `location / > if (...)` is judged as the `if` it is.
+        inherits: l.kind === 'if' && headers.length === 0,
+      };
+    }),
   ];
 });
 
 const get = (block, name) =>
   block.headers.find((h) => h.name.toLowerCase() === name.toLowerCase());
+
+/**
+ * The blocks that must DECLARE the full set. Everything except an `if` that
+ * declares no add_header at all and therefore inherits the enclosing level's
+ * headers verbatim. The Content-Type guard below deliberately runs over ALL of
+ * BLOCKS instead: it only fires when a block actually sets the header, so an
+ * inheriting block is vacuously fine there and an `if` that sets Content-Type
+ * is still caught.
+ */
+const ENFORCED = BLOCKS.filter((b) => !b.inherits);
 
 // ---------------------------------------------------------------------------
 // THE CONTRACT. Each value carries the reason it is that value and not the
@@ -202,8 +247,8 @@ const CSP_EXACT =
   "frame-ancestors 'none'";
 
 test('every server/location block declares the full security-header set', () => {
-  assert.ok(BLOCKS.length >= 5, `expected server scope + >=4 locations, saw ${BLOCKS.length}`);
-  for (const block of BLOCKS) {
+  assert.ok(ENFORCED.length >= 5, `expected server scope + >=4 locations, saw ${ENFORCED.length}`);
+  for (const block of ENFORCED) {
     for (const [name, value] of Object.entries(REQUIRED)) {
       const h = get(block, name);
       assert.ok(
@@ -332,7 +377,7 @@ test('COEP is not require-corp (it would block the Google channel avatars)', () 
 });
 
 test('CORP stays cross-origin (this server is a federation remote)', () => {
-  for (const block of BLOCKS) {
+  for (const block of ENFORCED) {
     const h = get(block, 'Cross-Origin-Resource-Policy');
     assert.ok(
       h && !['same-origin', 'same-site'].includes(h.value),
@@ -352,7 +397,7 @@ test('CORP stays cross-origin (this server is a federation remote)', () => {
 test('Permissions-Policy keeps the three features the <video> player needs', () => {
   const KEEP = { autoplay: '(self)', fullscreen: '(self)', 'picture-in-picture': '(self)' };
   const DENY = ['camera', 'microphone', 'geolocation', 'display-capture', 'payment', 'usb'];
-  for (const block of BLOCKS) {
+  for (const block of ENFORCED) {
     const pp = get(block, 'Permissions-Policy');
     assert.ok(pp, `${block.label} emits no Permissions-Policy`);
     const features = Object.fromEntries(
@@ -393,7 +438,7 @@ test('every Permissions-Policy feature name is one Chromium recognises', () => {
     'storage-access', 'usb', 'window-management', 'xr-spatial-tracking', 'clipboard-read',
     'clipboard-write', 'compute-pressure', 'attribution-reporting', 'bluetooth',
   ]);
-  for (const block of BLOCKS) {
+  for (const block of ENFORCED) {
     const pp = get(block, 'Permissions-Policy');
     for (const clause of pp.value.split(',')) {
       const name = clause.split('=')[0].trim();
@@ -407,29 +452,39 @@ test('every Permissions-Policy feature name is one Chromium recognises', () => {
   }
 });
 
-test('no block sets Content-Type with add_header (it APPENDS, so nosniff reads the wrong one)', () => {
+test('no block sets Content-Type with add_header (it APPENDS, so the field ships twice)', () => {
   // MEASURED, not theoretical. `location = /healthz` shipped
   // `add_header Content-Type text/plain;` and the live response carried the
   // field TWICE — `application/octet-stream` (nginx's default_type, already set
   // by the time the header filter runs) followed by `text/plain` — because
-  // add_header APPENDS and never replaces. That is a real bug specifically
-  // BECAUSE this file also sends `X-Content-Type-Options: nosniff` on the same
-  // response: nosniff tells the browser to trust the declared type instead of
-  // sniffing, and the type it trusts is the FIRST one. So the hardening header
-  // and the Content-Type header combined to turn a three-byte `ok` health probe
-  // into an octet-stream download. The fix is `default_type`, which REPLACES.
-  //
-  // Verified against nginxinc/nginx-unprivileged:1.27-alpine serving this exact
-  // file: with add_header, 2 Content-Type headers; with default_type, 1
+  // add_header APPENDS and never replaces. The fix is `default_type`, which
+  // REPLACES: with add_header, 2 Content-Type headers; with default_type, 1
   // (`text/plain`), body still `ok`, all eight security headers still present.
+  // Verified against nginxinc/nginx-unprivileged:1.27-alpine serving this file.
+  //
+  // CORRECTION. An earlier revision of this comment asserted that the duplicate
+  // combined with `X-Content-Type-Options: nosniff` to pin the browser to the
+  // FIRST field and turn the three-byte `ok` into a download. THAT WAS WRONG.
+  // Four-way measurement, same image, headless Chromium 149 + curl:
+  //   pre-fix (2 fields, nosniff ON)   -> document.contentType text/plain, no download
+  //   post-fix (default_type)          -> text/plain, no download
+  //   pre-fix, nosniff REMOVED         -> IDENTICAL to pre-fix (nosniff is irrelevant)
+  //   CONTROL: no type declared at all -> application/octet-stream, and Chromium
+  //                                       DOES download it
+  // Browsers take the LAST Content-Type (Fetch "extract a MIME type" overwrites
+  // per value); curl's %{content_type} agrees. So this guard defends spec
+  // hygiene, and the guard BELOW — `/healthz` must still declare default_type —
+  // is the one defending the behaviour a user could actually see.
   for (const block of BLOCKS) {
     const ct = get(block, 'Content-Type');
     assert.ok(
       !ct,
       `${block.label} sets Content-Type with add_header ("${ct?.value}"). add_header APPENDS to ` +
         `the Content-Type nginx has already derived from default_type, so the response ships two ` +
-        `Content-Type fields and \`X-Content-Type-Options: nosniff\` pins the browser to the ` +
-        `FIRST (wrong) one. Use \`default_type\` in this block instead — it replaces.`,
+        `Content-Type fields. Browsers and curl resolve the LAST one, so this is spec hygiene ` +
+        `rather than a user-visible break — but two fields is still wrong, and the block below ` +
+        `is what stops the fix being "satisfied" by deleting the type declaration entirely ` +
+        `(THAT one really does download). Use \`default_type\` in this block instead — it replaces.`,
     );
   }
 });

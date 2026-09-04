@@ -105,11 +105,17 @@ test:headers:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_TAG'
   script:
-    # sh -c with the glob single-quoted: node expands the `**` pattern itself,
-    # and the runner's shell must not get a chance to mangle it first.
+    # NOT `sh -c 'node --test "tests/**/*.test.mjs"'`. That command EXITS 0 WHEN
+    # THE GLOB MATCHES NOTHING — measured: delete tests/security-headers.test.mjs
+    # from a checkout, run this exact job, and it reports `# fail 0` and passes,
+    # so `build:image` (which `needs` this job) would build behind a gate that
+    # asserted nothing. tests/run-guards.mjs discovers the guard files in
+    # process, refuses to continue when there are none, and asserts the runner's
+    # own summary counts against a floor. No shell, so the glob cannot be
+    # mangled and "no matches" cannot be silently swallowed either.
     - >-
       docker run --rm -v "${CI_PROJECT_DIR}:/src:ro" -w /src node:24-alpine
-      sh -c 'node --test "tests/**/*.test.mjs"'
+      node tests/run-guards.mjs
 
 # -----------------------------------------------------------------------------
 # e2e:bdd — Playwright + playwright-bdd Gherkin harness for the tube-ui remote
