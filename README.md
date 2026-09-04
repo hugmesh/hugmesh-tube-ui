@@ -416,21 +416,67 @@ Shipped and on `main` today:
   - **`/healthz` declares its media type with `default_type`, not
     `add_header Content-Type`.** `add_header` APPENDS, so the endpoint was
     answering with the field twice — `application/octet-stream` (nginx's
-    default, already set when the header filter runs) *then* `text/plain` — and
-    `X-Content-Type-Options: nosniff` on the same response pins the browser to
-    the **first**, i.e. a download prompt for a three-byte `ok`. Found by
-    curling the running container rather than by reading the file; guarded both
-    ways (no `add_header Content-Type` anywhere, and `/healthz` must still
-    declare `default_type text/plain`).
+    default, already set when the header filter runs) *then* `text/plain`.
+    Found by curling the running container rather than by reading the file;
+    guarded both ways (no `add_header Content-Type` anywhere, and `/healthz`
+    must still declare `default_type text/plain`).
+
+    **Correction (what the duplicate did and did not do).** An earlier revision
+    of this section, of the `nginx.conf` comment and of the guard test claimed
+    the duplicate combined with `X-Content-Type-Options: nosniff` to pin the
+    browser to the **first** type and hand the user a download prompt for a
+    three-byte `ok`. **That claim is false**, and a four-way experiment on the
+    same image (`nginxinc/nginx-unprivileged:1.27-alpine`, headless Chromium
+    149, plus `curl`) disproves it:
+
+    | variant | `Content-Type` on the wire | `document.contentType` | download? |
+    | --- | --- | --- | --- |
+    | pre-fix as shipped (`add_header`, nosniff on) | `application/octet-stream`, `text/plain` | `text/plain` | **no** |
+    | post-fix (`default_type`) | `text/plain` | `text/plain` | no |
+    | pre-fix with **nosniff removed** | `application/octet-stream`, `text/plain` | `text/plain` | **no** |
+    | CONTROL: no type declared at all | `application/octet-stream` | — | **YES** (`page.goto` fails `Download is starting`, `suggestedFilename: "healthz"`) |
+
+    Browsers resolve the **last** `Content-Type`, not the first — Fetch's
+    "extract a MIME type" overwrites its result for every field value, and
+    Chromium implements that; `curl -w '%{content_type}'` agrees. `nosniff`
+    plays no part in the choice: removing it changes nothing. So the duplicate
+    was **spec hygiene, not a user-visible break**, and the fix is still the
+    right one (one correct field beats two, `default_type` is the right nginx
+    idiom). The download *is* real for the CONTROL row, which is why the
+    **second** guard — `/healthz` must still declare `default_type text/plain`
+    — is the one carrying the load-bearing rationale: deleting the type
+    declaration to satisfy "no `add_header Content-Type`" is the mutation that
+    actually breaks the endpoint.
   - Guarded by `npm run test:headers`
     (`tests/security-headers.test.mjs`, zero dependencies): it walks every
-    `server` block and every `location` — **including nested ones**, because
-    `add_header`'s non-merging rule applies at every level — asserts each
-    header and value, pins the CSP **verbatim** (a widening such as `img-src *`
-    or a host-source next to the nonce is silent in production and is the
-    failure this catches), pins the `$cspnonce` map's `default $request_id`
-    body, and fails on the "obviously stricter" mutations above. Blocking in
-    CI as `test:headers`, and `build:image` depends on it.
+    `server` block, every `location` **and every `if`** — including nested ones,
+    because `add_header`'s non-merging rule applies at every configuration
+    level — asserts each header and value, pins the CSP **verbatim** (a widening
+    such as `img-src *` or a host-source next to the nonce is silent in
+    production and is the failure this catches), pins the `$cspnonce` map's
+    `default $request_id` body, and fails on the "obviously stricter" mutations
+    above. Blocking in CI as `test:headers`, and `build:image` depends on it.
+    - **`if` blocks are walked because they were an evasion.** An earlier
+      revision walked `location` only, so
+      `if ($arg_dl) { add_header X-Frame-Options "SAMEORIGIN" always; }` inside
+      `location = /healthz` passed the whole suite *and* `nginx -t`. Measured
+      against the real image: `GET /healthz` keeps all eight security headers,
+      `GET /healthz?dl=1` comes back with **one** — `X-Frame-Options:
+      SAMEORIGIN` — and none of the other seven. An `if` that declares no
+      `add_header` inherits the enclosing set and is exempt (`if
+      ($request_method = POST) { return 405; }` is a legitimate shape);
+      one that declares any must re-declare them all.
+    - **The job cannot pass by not running.** `test:headers` used to be
+      `node --test "tests/**/*.test.mjs"`, which **exits 0 when the glob matches
+      nothing** — measured: delete `tests/security-headers.test.mjs`, run the
+      exact CI job, and it reports `# fail 0` and goes green while
+      `build:image` proceeds behind a gate that asserted nothing.
+      `tests/run-guards.mjs` now discovers the guard files itself, refuses to
+      continue when there are none, and asserts the runner's own summary counts
+      against a floor (`MIN_TESTS`). Measured after the fix: guard file deleted
+      → exit 1; `tests/` empty → exit 1; suite gutted to one test → exit 1;
+      the runner itself deleted → exit 1 (node cannot start a missing entry
+      point).
     - What it does **not** cover: anything only a running server can show —
       that a header is honoured, that the nonce reaches the browser, that a
       cross-origin avatar still loads. Those are verified by running the image
