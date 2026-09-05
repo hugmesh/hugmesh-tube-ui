@@ -126,8 +126,14 @@ function nestedBlocks(body) {
   return blocks;
 }
 
-/** add_header directives declared directly in `body` (nested blocks removed). */
-function addHeaders(body) {
+/**
+ * `body` with every nested block removed, i.e. exactly the directives THIS
+ * configuration level declares itself. Both the `add_header` scan and the
+ * `sub_filter` scan need it, and for the same reason: nginx resolves both at
+ * one level, so a directive that lives in a child block must never be read as
+ * if the parent declared it.
+ */
+function ownBody(body) {
   let own = body;
   // Remove nested blocks so a server-scope scan does not inherit a location's.
   for (;;) {
@@ -143,6 +149,12 @@ function addHeaders(body) {
     const lineStart = own.lastIndexOf('\n', openIdx) + 1;
     own = own.slice(0, lineStart) + own.slice(closeIdx + 1);
   }
+  return own;
+}
+
+/** add_header directives declared directly in `body` (nested blocks removed). */
+function addHeaders(body) {
+  const own = ownBody(body);
   const headers = [];
   const re = /add_header\s+(\S+)\s+("(?:[^"]*)"|\S+)\s*(always)?\s*;/g;
   let m;
@@ -183,13 +195,14 @@ assert.ok(SERVERS.length >= 1, 'nginx.conf must contain a server block');
 const BLOCKS = SERVERS.flatMap((srv, n) => {
   const tag = SERVERS.length > 1 ? ` #${n + 1}` : '';
   return [
-    { label: `server${tag} scope`, headers: addHeaders(srv.body), body: srv.body },
+    { label: `server${tag} scope`, headers: addHeaders(srv.body), body: srv.body, own: ownBody(srv.body) },
     ...nestedBlocks(srv.body).map((l) => {
       const headers = addHeaders(l.body);
       return {
         label: `server${tag} ${l.match}`,
         headers,
         body: l.body,
+        own: ownBody(l.body),
         // `kind` is the INNERMOST block's kind, so a nested
         // `location / > if (...)` is judged as the `if` it is.
         inherits: l.kind === 'if' && headers.length === 0,
@@ -198,8 +211,72 @@ const BLOCKS = SERVERS.flatMap((srv, n) => {
   ];
 });
 
-const get = (block, name) =>
-  block.headers.find((h) => h.name.toLowerCase() === name.toLowerCase());
+/**
+ * Response header field names that may legitimately appear more than once. Kept
+ * deliberately tiny: everything else is single-valued here, and a second
+ * `add_header` for a single-valued field is a defect, not a style.
+ */
+const REPEATABLE = new Set(['set-cookie', 'link']);
+
+/** Every add_header this block declares for `name`, in file order. */
+const all = (block, name) =>
+  block.headers.filter((h) => h.name.toLowerCase() === name.toLowerCase());
+
+/**
+ * THE one add_header this block declares for `name` — and a hard failure if it
+ * declares two.
+ *
+ * WHY THIS FAILS INSTEAD OF RETURNING THE FIRST MATCH. `add_header` APPENDS. A
+ * second directive for the same field name does not replace the first, it puts
+ * a SECOND field on the wire, and the browser then applies its own per-header
+ * combination rule to the pair — which for the two headers this file cares most
+ * about is not "the first one wins". Measured on
+ * nginxinc/nginx-unprivileged:1.27-alpine serving this exact file, read in
+ * headless Chromium 149:
+ *   - two `Cross-Origin-Embedder-Policy` fields (the shipped `credentialless`
+ *     plus a `require-corp`) -> both fields ship and `crossOriginIsolated`
+ *     flips true -> FALSE. Cross-origin isolation silently lost.
+ *   - two `Content-Security-Policy` fields (the shipped policy plus a narrower
+ *     `default-src 'self'; script-src 'self'`) -> CSP is enforced
+ *     CONJUNCTIVELY, so the NARROWER one decides: blank page at HTTP 200, with
+ *     "Executing inline script violates the following Content Security Policy
+ *     directive 'script-src 'self''" in the console. That is the exact
+ *     blank-page failure this whole file exists to prevent.
+ * This lookup was `headers.find(...)` — first match only — until this commit,
+ * so BOTH of those mutations passed the entire suite green.
+ */
+const get = (block, name) => {
+  const hits = all(block, name);
+  if (hits.length > 1 && !REPEATABLE.has(name.toLowerCase())) {
+    assert.fail(
+      `${block.label} declares ${name} ${hits.length} times ` +
+        `(${hits.map((h) => JSON.stringify(h.value)).join(', ')}). add_header APPENDS, so both ` +
+        `fields ship and the browser combines them — a second CSP is enforced conjunctively ` +
+        `(the narrower one wins, i.e. a blank page) and a second COEP drops cross-origin ` +
+        `isolation. Declare exactly one.`,
+    );
+  }
+  return hits[0];
+};
+
+/**
+ * Can this block serve NOTHING but one fixed, non-HTML resource?
+ *
+ * Such a block is exempt from the CSP/CORS contract below: a Content-Security-
+ * Policy on a stylesheet or a three-byte text/plain probe governs no document
+ * and grants no script, and the CORS grant exists for the federation bundles.
+ * The test is deliberately conjunctive — it pins the media type with
+ * `default_type` to something other than text/html AND answers from a `return`
+ * or a single-file `alias` AND cannot fall through to the SPA via `try_files` —
+ * so "add a `default_type text/plain;`" is not a way to opt a block that really
+ * does serve the app out of carrying a policy.
+ */
+function servesOnlyFixedNonHtml(body) {
+  const dt = /(?:^|[\s;{])default_type\s+([^\s;]+)\s*;/.exec(body);
+  if (!dt || dt[1] === 'text/html') return false;
+  if (/\btry_files\b/.test(body)) return false;
+  return /\breturn\s+\d/.test(body) || /\balias\s+\S+\.[A-Za-z0-9]+\s*;/.test(body);
+}
 
 /**
  * The blocks that must DECLARE the full set. Everything except an `if` that
@@ -210,6 +287,31 @@ const get = (block, name) =>
  * is still caught.
  */
 const ENFORCED = BLOCKS.filter((b) => !b.inherits);
+
+/**
+ * The blocks that must also carry the Content-Security-Policy and the
+ * federation CORS grant: everything that can serve an app DOCUMENT or a
+ * federation ASSET, which is every enforced block except the fixed non-HTML
+ * ones above.
+ *
+ * WHY THIS IS NOT "the block labelled `location /`". Both headers used to be
+ * asserted with `BLOCKS.find((b) => b.label.endsWith('location /'))`, i.e. on
+ * one named block, so a NESTED location that re-declared the eight baseline
+ * headers and dropped these two walked through the suite green. Measured, both
+ * of them, end to end:
+ *   - `location = /index.html { <the eight> }` inside `location /`: nginx's
+ *     `index index.html` internal redirect makes that exact-match block serve
+ *     `GET /`, so the app document ships with ZERO Content-Security-Policy.
+ *     Behind a proxy mimicking hugmesh-gateway's SecurityConfig (which adds
+ *     `default-src 'self'; script-src 'self'` only when the upstream sent none)
+ *     the page is BLANK at HTTP 200 — no router-outlet, console reports
+ *     "Executing inline script violates … 'script-src 'self''". The shipped
+ *     config through the identical proxy bootstraps clean.
+ *   - `location ~* \.(?:js|mjs)$ { <the eight> + the CSP }` inside `location /`:
+ *     suite green, and every federation bundle loses the
+ *     Access-Control-Allow-Origin the host shell needs to fetch it cross-origin.
+ */
+const APP_CONTENT = ENFORCED.filter((b) => !servesOnlyFixedNonHtml(b.body));
 
 // ---------------------------------------------------------------------------
 // THE CONTRACT. Each value carries the reason it is that value and not the
@@ -352,6 +454,148 @@ test('the CSP nonce contract is intact (a blank page is the failure mode)', () =
   assert.doesNotMatch(CONF, /gzip_static\s+(on|always)\s*;/,
     'gzip_static would serve a precompressed index.html that sub_filter CANNOT rewrite — the ' +
       'nonce silently disappears while the CSP still demands it.');
+});
+
+test('the CSP and the CORS grant are on EVERY block that can serve app content', () => {
+  // The companion to the nonce-contract test above, which checks the POLICY on
+  // one named block. This one checks the SCOPE: that no block able to hand a
+  // browser an app document, or the host shell a federation bundle, can exist
+  // without them. Both are the "silently green" gaps measured in the comment on
+  // APP_CONTENT.
+  assert.ok(
+    APP_CONTENT.length >= 2,
+    `expected at least server scope + location /, saw ${APP_CONTENT.length}: ` +
+      APP_CONTENT.map((b) => b.label).join(', '),
+  );
+  for (const block of APP_CONTENT) {
+    const csp = get(block, 'Content-Security-Policy');
+    assert.ok(
+      csp,
+      `${block.label} can serve an app document or a federation bundle and emits no ` +
+        `Content-Security-Policy. That response does not go out unprotected — it inherits ` +
+        `hugmesh-gateway's blanket fallback (\`script-src 'self'\`), which blocks the inline ` +
+        `esms-options script, stops Angular bootstrapping and serves a BLANK PAGE at HTTP 200. ` +
+        `If this block genuinely serves one fixed non-HTML file, give it a \`default_type\` and ` +
+        `a \`return\`/single-file \`alias\` (see servesOnlyFixedNonHtml) rather than dropping the ` +
+        `header.`,
+    );
+    assert.equal(
+      csp.value,
+      CSP_EXACT,
+      `${block.label} emits a Content-Security-Policy that differs from the one pinned in ` +
+        `CSP_EXACT. Two blocks serving the same app under different policies is how a ` +
+        `tightening lands on one path and a widening on another, both silently.`,
+    );
+    assert.ok(
+      csp.always,
+      `${block.label} emits the CSP without \`always\`, so its 4xx/5xx responses ship without ` +
+        `it — and the SPA fallback serves index.html through error paths.`,
+    );
+
+    const acao = get(block, 'Access-Control-Allow-Origin');
+    assert.equal(
+      acao?.value,
+      '*',
+      `${block.label} does not grant Access-Control-Allow-Origin: *. This container exists to ` +
+        `be read cross-origin: the hugmesh.net host shell fetches /remoteEntry.json and the ` +
+        `exposed chunks from another origin, and the dev federation.manifest.json points a ` +
+        `:4200 host at this remote. Without the grant the remote loads standalone and fails ` +
+        `only under the shell.`,
+    );
+    assert.ok(acao.always, `${block.label} emits Access-Control-Allow-Origin without \`always\`.`);
+  }
+});
+
+test('no block declares the same response header twice (add_header APPENDS)', () => {
+  // `get()` already refuses to answer for a duplicated header, which protects
+  // every assertion in this file. This test is the general case: it also catches
+  // a duplicate of a header NOTHING else here looks at, and it names all of them
+  // in one failure instead of whichever the first assertion happened to hit.
+  for (const block of BLOCKS) {
+    const seen = new Map();
+    for (const h of block.headers) {
+      const key = h.name.toLowerCase();
+      if (REPEATABLE.has(key)) continue;
+      seen.set(key, (seen.get(key) ?? 0) + 1);
+    }
+    const dupes = [...seen].filter(([, n]) => n > 1).map(([k, n]) => `${k} x${n}`);
+    assert.deepEqual(
+      dupes,
+      [],
+      `${block.label} declares the same header more than once: ${dupes.join(', ')}. add_header ` +
+        `does not replace, it APPENDS — both fields go on the wire and the browser combines ` +
+        `them (two CSPs are enforced conjunctively, i.e. the narrower one blanks the page; two ` +
+        `COEPs drop cross-origin isolation). Edit the existing directive instead of adding one.`,
+    );
+  }
+});
+
+test('the nonce injection survives wherever sub_filter can be overridden', () => {
+  // sub_filter, UNLIKE add_header, does inherit — but only while the inner level
+  // declares none of its own. One `sub_filter` in a nested block therefore drops
+  // every inherited one, exactly like add_header, and the CSP that block still
+  // emits then demands a nonce no <script> tag carries: a blank page at HTTP 200.
+  const INJECT = /sub_filter\s+'<script'\s+'<script nonce="\$cspnonce"'\s*;/;
+
+  // The injection must exist at server scope, because that is the level every
+  // block declaring no sub_filter of its own inherits it from — including the
+  // nonce-bearing CSP now declared there.
+  for (const srv of SERVERS) {
+    assert.match(
+      ownBody(srv.body),
+      INJECT,
+      'server scope declares the nonce-bearing CSP but not the sub_filter that puts that nonce ' +
+        'on the <script> tags. Any block inheriting from server scope would then serve a policy ' +
+        'nothing satisfies — a blank page at HTTP 200.',
+    );
+  }
+
+  for (const block of BLOCKS) {
+    if (!/\bsub_filter(_once|_types)?\s/.test(block.own)) continue;
+    assert.match(
+      block.own,
+      INJECT,
+      `${block.label} declares a sub_filter directive but not the nonce injection. Declaring ` +
+        `ANY sub_filter directive at a level discards every sub_filter inherited from the ` +
+        `enclosing level, so this block would serve index.html with un-nonced <script> tags ` +
+        `under a CSP that requires the nonce — blank page at HTTP 200.`,
+    );
+    assert.match(
+      block.own,
+      /sub_filter_once\s+off\s*;/,
+      `${block.label} declares the nonce injection without \`sub_filter_once off\`, so only the ` +
+        `FIRST <script> would be nonced and the rest of the federation bootstrap stays blocked.`,
+    );
+    const types = /sub_filter_types\s+([^;]+);/.exec(block.own);
+    if (types) {
+      assert.equal(
+        types[1].trim(),
+        'text/html',
+        `${block.label}: sub_filter_types must stay exactly text/html. Widen it and nginx ` +
+          `rewrites the JS bundles too — they legitimately contain the literal "<script".`,
+      );
+    }
+  }
+});
+
+test('nothing in the server block is hidden from this parser', () => {
+  // This suite reads nginx.conf as text and does not follow `include`. So an
+  // `include /etc/nginx/extra-headers.conf;` inside a location is a blind spot:
+  // measured, adding one passes the whole suite, and whatever that file declares
+  // — including an add_header that appends a second CSP — is invisible here.
+  // There is no include in this file today, so pin that rather than leave the
+  // hole open. If one is genuinely needed, teach the parser to follow it in the
+  // same commit.
+  for (const srv of SERVERS) {
+    assert.doesNotMatch(
+      srv.body,
+      /(?:^|[\s;{])include\s+[^;]+;/,
+      'an `include` inside the server block puts directives this suite cannot see into the ' +
+        'response path. Every guard here would still pass while the included file appended a ' +
+        'second Content-Security-Policy or replaced the header set. Inline the directives, or ' +
+        'extend this parser to follow includes in the same commit.',
+    );
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -500,8 +744,12 @@ test('the health endpoint still declares its media type (via default_type)', () 
     hz.body,
     /default_type\s+text\/plain\s*;/,
     'location = /healthz no longer declares `default_type text/plain;`. Without it the ' +
-      "endpoint answers nginx's stock application/octet-stream, and nosniff makes the browser " +
-      'honour that — a download prompt for a three-byte health probe.',
+      "endpoint answers nginx's stock application/octet-stream, and Chromium DOWNLOADS an " +
+      'octet-stream response instead of displaying it — a download prompt for a three-byte ' +
+      'health probe. MEASURED, and measured WITHOUT nosniff too: removing ' +
+      '`X-Content-Type-Options: nosniff` from this block changes nothing, the download still ' +
+      'happens. It is the octet-stream type alone that does it, not any interaction with ' +
+      'nosniff (an earlier revision of this message said otherwise and was wrong).',
   );
 });
 

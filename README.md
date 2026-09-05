@@ -386,9 +386,9 @@ Shipped and on `main` today:
 - **e2e harness:** a Playwright + BDD (Gherkin) harness lives in-tree but is
   not yet wired into CI as a required gate.
 - **Full nginx response-header set** (`nginx.conf`), emitted with `always` (so
-  they also cover error responses) and re-declared in **every** `location` —
-  nginx's `add_header` does not merge, so a block that declares one header of
-  its own drops all the inherited ones:
+  they also cover error responses) and re-declared at **server scope and in
+  every `location`** — nginx's `add_header` does not merge, so a block that
+  declares one header of its own drops all the inherited ones:
   - Baseline: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
     `Referrer-Policy: strict-origin-when-cross-origin`, HSTS.
   - **CSP**, nonce-based (`map $request_id $cspnonce` + a `sub_filter` that
@@ -477,6 +477,53 @@ Shipped and on `main` today:
       → exit 1; `tests/` empty → exit 1; suite gutted to one test → exit 1;
       the runner itself deleted → exit 1 (node cannot start a missing entry
       point).
+    - **A duplicate `add_header` is a defect, and the guard used to be blind to
+      it.** The lookup was `headers.find(...)` — first match — so a *second*
+      directive for a header the suite already checked passed unnoticed. It is
+      not a no-op: `add_header` appends, both fields ship, and the browser
+      combines them. Measured on the real image in headless Chromium 149, both
+      added inside `location /`: a second `Cross-Origin-Embedder-Policy:
+      require-corp` beside the shipped `credentialless` flips
+      `crossOriginIsolated` **true → false**; a second, narrower
+      `Content-Security-Policy: default-src 'self'; script-src 'self'` beside
+      the shipped one wins outright, because CSP is enforced **conjunctively** —
+      blank page at HTTP 200 with *"Executing inline script violates … 'script-src
+      'self''"*. The lookup now fails on any duplicate of a single-valued header,
+      and a separate guard names every duplicate in a block at once.
+    - **The CSP and the CORS grant are asserted per BLOCK, not on one named
+      block.** They used to be checked with
+      `BLOCKS.find((b) => b.label.endsWith('location /'))`, so a *nested*
+      location that re-declared the eight baseline headers and dropped these two
+      walked through green. Measured, both of them: `location = /index.html {
+      <the eight> }` inside `location /` makes nginx's `index index.html`
+      internal redirect serve `GET /` from that block, so the app document ships
+      with **zero** CSP — and behind a proxy mimicking `hugmesh-gateway`'s
+      `SecurityConfig` (which supplies `script-src 'self'` only when the upstream
+      sent none) the page is **blank at HTTP 200**; `location ~* \.(?:js|mjs)$`
+      carrying the eight *and* the CSP but not
+      `Access-Control-Allow-Origin` silently strips the grant the host shell
+      needs. Every block that can serve an app document or a federation asset
+      must now carry both. A block is exempt only if it can serve nothing but one
+      fixed non-HTML resource — it pins a non-`text/html` `default_type` **and**
+      answers from a `return`/single-file `alias` **and** has no `try_files`
+      fall-through — so the two theme stylesheets and `/healthz` are exempt and
+      "add a `default_type`" is not an escape hatch.
+    - **Server scope declares them too, and it is not an unreachable level.**
+      nginx answers some requests *before* it selects a location. Measured, one
+      malformed request (`Content-Length: abc`): on the previous config the
+      `400 Bad Request` came back with the eight baseline headers and **no** CSP
+      and **no** CORS grant; with the server-scope declaration it carries both.
+      Declaring them there also means the contract is asserted on every level
+      that can emit a response, with no "except the server block" carve-out for
+      a future edit to hide in. The nonce `sub_filter` moved up with the CSP that
+      demands it — unlike `add_header`, `sub_filter` *does* inherit, but only
+      while the inner level declares none of its own, so any block that declares
+      one must declare the whole injection (guarded).
+    - **No `include` inside the server block.** This suite reads `nginx.conf` as
+      text and does not follow includes, so an `include` in the response path is
+      a hole every guard here would pass straight over. There is none today and
+      the suite now pins that; adding one means teaching the parser to follow it
+      in the same commit.
     - What it does **not** cover: anything only a running server can show —
       that a header is honoured, that the nonce reaches the browser, that a
       cross-origin avatar still loads. Those are verified by running the image
