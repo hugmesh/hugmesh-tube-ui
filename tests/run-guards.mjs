@@ -38,7 +38,7 @@ import { join } from 'node:path';
  * genuinely obsolete, delete the test AND lower the floor in the same commit,
  * with the reason in the commit message.
  */
-const MIN_TESTS = 13;
+const MIN_TESTS = 23;
 
 const TESTS_DIR = import.meta.dirname;
 

@@ -8,3 +8,5 @@
 /test-results
 /coverage
 /.e2e-credentials
+.pentest-harness/
+out/
