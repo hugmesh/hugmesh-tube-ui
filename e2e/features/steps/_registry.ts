@@ -38,7 +38,14 @@ export const responseState = { lastStatus: 0 };
  *  cross-user path). Cleared on scenario teardown. */
 export const capturedState = { contentPath: '' };
 
+/** One request the page sent to the mocked tube-bff (offline `@mock` lane).
+ *  `path` is pathname + search, `body` the raw post data or null. The oracle
+ *  for "the UI sent exactly this" assertions. Cleared on scenario teardown. */
+export interface MockedRequest { method: string; path: string; body: string | null }
+export const mockLog: MockedRequest[] = [];
+
 export function resetRegistry(): void {
+  mockLog.length = 0;
   pageRegistry.clear();
   ctxRegistry.clear();
   responseState.lastStatus = 0;

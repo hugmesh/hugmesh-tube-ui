@@ -6,7 +6,17 @@ import { defineBddConfig } from 'playwright-bdd';
 // hugmesh.net host mounts at /tube behind route-access ROLE_TUBE, so the
 // e2e baseURL points at the host front door (the federated remote is not
 // browsable in isolation in a real stack). Override with E2E_BASE_URL.
-const baseURL = process.env.E2E_BASE_URL ?? 'https://host.docker.internal:8443';
+//
+// OFFLINE MOCK LANE: with E2E_SERVE_APP=1 the config starts the STANDALONE dev
+// shell itself (`ng run tube:serve-original:development`, mounted at /tube,
+// fixed port so no random-port discovery) and points baseURL at it. The
+// `@mock` features then run with a seeded session + page.route() standing in
+// for the tube-bff — no host shell, no Casdoor, no cluster. See README.md.
+const serveApp = process.env.E2E_SERVE_APP === '1';
+const APP_PORT = 4209;
+const baseURL =
+  process.env.E2E_BASE_URL ??
+  (serveApp ? `http://localhost:${APP_PORT}` : 'https://host.docker.internal:8443');
 
 // playwright-bdd compiles every .feature under features/ into a generated
 // .spec.js (under .features-gen/), discovers them via `testDir`, and wires the
@@ -37,6 +47,16 @@ const bddTestDir = defineBddConfig({
 });
 
 export default defineConfig({
+  webServer: serveApp
+    ? {
+        command: `npx ng run tube:serve-original:development --port ${APP_PORT}`,
+        cwd: '..',
+        // A real route, not '/': it 200s only once the bundle is being served.
+        url: `http://localhost:${APP_PORT}/tube/my`,
+        reuseExistingServer: !process.env.CI,
+        timeout: 240_000,
+      }
+    : undefined,
   // Single-worker. Two workers cause flaky failures: per-role login through
   // Casdoor + native-federation manifest fetches contend on a small dev stack
   // and `waitForURL` after the login click stalls intermittently. Serial
@@ -65,6 +85,9 @@ export default defineConfig({
     trace: 'retain-on-failure',
     screenshot: 'on',
     video: 'on',
+    // Optional: a specific chromium build (the cached one on a dev box). Unset in
+    // CI, where the Playwright image ships the matching browser.
+    launchOptions: { executablePath: process.env.E2E_CHROMIUM || undefined },
     actionTimeout: 15_000,
     navigationTimeout: 30_000,
   },

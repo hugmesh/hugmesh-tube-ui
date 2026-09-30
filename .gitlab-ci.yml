@@ -158,6 +158,41 @@ e2e:bdd:
       - e2e/results/
     expire_in: 7 days
 
+# -----------------------------------------------------------------------------
+# e2e:mock — the OFFLINE MOCKED-BACKEND lane (issue #2). Serves the standalone dev
+# shell (`ng run tube:serve-original:development`, started by e2e/playwright.config.ts
+# when E2E_SERVE_APP=1) and runs the `@mock` features (Tube Access + Storage Budgets
+# consoles) with a seeded session and page.route() standing in for the tube-bff.
+# No cluster, no Casdoor. It proves what the consoles send and render, NOT that the
+# bff authorises; that stays in the @cluster features.
+# allow_failure: true = non-blocking. Whether this is a REQUIRED gate is a GitLab
+# project setting (protected-branch / merge-request pipeline rules), not something
+# this file can declare.
+# -----------------------------------------------------------------------------
+e2e:mock:
+  stage: e2e
+  needs: []
+  tags: [hugmesh-x86, privileged]
+  allow_failure: true
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  script:
+    - >-
+      docker run --rm -e CI=1 -v "${CI_PROJECT_DIR}:/src" -w /src node:24 sh -c '
+        npm ci &&
+        cd e2e &&
+        npm ci &&
+        npx playwright install --with-deps chromium &&
+        npm run typecheck &&
+        npm run test:mock
+      '
+  artifacts:
+    when: always
+    paths:
+      - e2e/results/
+    expire_in: 7 days
+
 build:image:
   needs:
     - test
