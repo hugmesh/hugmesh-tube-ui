@@ -307,13 +307,13 @@ that hop.
 
 ## Known gaps / TODO
 
-- **`pentest:dast` cannot execute yet.** It runs
-  `${PENTEST_HARNESS_DIR}/run-pentest.sh` from the centralized
-  `pentest-stage.gitlab-ci.yml`, which expects the shared harness at
-  `tests/pentest` — a path this repo does not vendor. Until the harness is
-  vendored/fetched here, the job fails fast at the harness lookup instead of
-  scanning, and no executed pipeline run of this stage has been verified yet.
-  See the CI section below.
+- **`pentest:dast` first pipeline run is unverified.** The job now fetches the
+  shared harness from `hugmesh-generator` at CI time (`.pentest-harness/`) and
+  splices the base `before_script` back in, so it is structurally able to scan;
+  `tests/ci-wiring.test.mjs` pins that. Still needed on the GitLab side, and not
+  checkable from this repo: `hugmesh-generator` must allowlist this project for
+  `CI_JOB_TOKEN`, and the runner needs a GitHub credential for the harness's
+  `make stack-up`. Watch the first pipeline: the job is `allow_failure: true`.
 
 ## Develop
 
@@ -354,11 +354,11 @@ registry. The pipeline stages are:
   Both jobs are `allow_failure: true` (additive, non-blocking) and gated to the
   default branch plus merge requests.
 
-**Caveat:** `pentest:dast` executes `${PENTEST_HARNESS_DIR}/run-pentest.sh`,
-which this repo does not vendor (default `tests/pentest`) — until the shared
-harness is vendored/fetched here, the DAST job fails fast at the harness
-lookup instead of scanning, and no executed pipeline run of this stage has
-been verified yet.
+**Note:** `pentest:dast` fetches the shared harness from `hugmesh-generator`
+(`git clone` into `.pentest-harness/`, URL derived from `CI_REPOSITORY_URL`) and
+points `PENTEST_HARNESS_DIR` at it; `tests/ci-wiring.test.mjs` (part of
+`test:headers`) fails if that wiring regresses. It scans the platform built from
+`main`, not the pipeline's own commit.
 
 The Node version in CI is `node:24-alpine`; the minor version is not pinned
 (it tracks the latest 24.x from the upstream Docker image).
@@ -570,9 +570,9 @@ Platform-wide efforts that will touch this console; none is wired here today:
 - **OWASP pen-test CI** — 🚧 jobs defined, first run pending: `.gitlab-ci.yml`
   includes the centralized `hugmesh-generator` pen-test stage and adds
   non-blocking `pentest:sca` + `pentest:dast` jobs. SCA is self-contained; the
-  DAST leg (ZAP + the committed `nuclei` boundary templates) still needs the
-  shared harness vendored/fetched at `PENTEST_HARNESS_DIR`, and no pipeline
-  execution has been verified yet. The opt-in `k6` load leg (`.pentest-load`)
+  DAST leg (ZAP + the committed `nuclei` boundary templates) now fetches the
+  shared harness at CI time; no pipeline execution has been verified yet (needs
+  the generator's CI_JOB_TOKEN allowlist and a runner GitHub credential). The opt-in `k6` load leg (`.pentest-load`)
   is not wired here yet — it's a CI-pipeline stage, not a deployed CronJob or
   admin-UI trigger.
 
