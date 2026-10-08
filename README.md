@@ -23,9 +23,8 @@ alongside it:
 | [`hugmesh-host-shell`](https://github.com/hugmesh/hugmesh-host-shell) | host shell that mounts this and every other remote |
 | [`hugmesh-tube-bff-api`](https://github.com/hugmesh/hugmesh-tube-bff-api) | the backend-for-frontend this UI talks to (`/bff/tube/**`) |
 | [`hugmesh-auth-core`](https://github.com/hugmesh/hugmesh-auth-core) | shared account/session/MFA/Casdoor-admin infrastructure |
-| [`login-ui`](https://github.com/hugmesh/login-ui) | native login form used platform-wide |
-| [`user-bff`](https://github.com/hugmesh/user-bff) | owns login/session/token-custody logic |
-| [`hugmesh-ui-standard`](https://github.com/hugmesh/hugmesh-ui-standard) | the org's baseline UI-remote template |
+| [`hugmesh-login-ui`](https://github.com/hugmesh/hugmesh-login-ui) | native login form used platform-wide |
+| [`hugmesh-user-bff-api`](https://github.com/hugmesh/hugmesh-user-bff-api) | owns login/session/token-custody logic |
 | [`hugmesh-generator`](https://github.com/hugmesh/hugmesh-generator) | scaffolding + shared CI building blocks (including the pen-test harness this repo consumes) |
 
 ## Versions
@@ -36,10 +35,9 @@ alongside it:
 | @angular-architects/native-federation | 22.x |
 | ng-openapi-gen | 1.0.5 |
 
-> **Angular version:** This repo is on Angular 22.x + native-federation 22.x,
-> which is the direction all HugMesh UI remotes are moving toward. Some sibling
-> remotes — including the [`hugmesh-ui-standard`](https://github.com/hugmesh/hugmesh-ui-standard)
-> baseline template — are still on 19.x and expected to catch up over time.
+> **Angular version:** This repo is on Angular 22.x + native-federation 22.x. So
+> are the sibling UI remotes and the host shell: every `@angular/core` dependency
+> in their `package.json` on `origin/main` is `^22`.
 
 ## Federation contract
 
@@ -57,16 +55,24 @@ The request path from browser to this remote looks like this:
 
 ```mermaid
 flowchart TB
-    A[Browser navigates to /tube] --> B[Gateway: checks ROLE_TUBE on bff_ session]
-    B -->|no role| C[Gateway: 403 / redirect]
-    B -->|role present| D[Host shell loads]
-    D --> E["loadRemoteModule('tube', './Tube')"]
-    E --> F["GET http://hugmesh-tube-ui:8080/remoteEntry.json"]
-    F --> G[Module bootstraps TUBE_ROUTES]
-    G --> H[tubeReadGuard / tubeManageGuard evaluate role signals]
-    H -->|insufficient privilege| I["/tube/forbidden screen"]
-    H -->|authorised| J[Correct console rendered]
+    A[Browser navigates to /tube] --> B["Host shell: tubeGuard (admin, superadmin or ROLE_TUBE)"]
+    B -->|not admitted| C[Redirect to /login]
+    B -->|admitted| D["loadRemoteModule('tube', './Tube')"]
+    D --> E["GET /tube/remoteEntry.json at the gateway"]
+    E --> F{"Gateway route-access: /tube/** needs ROLE_TUBE"}
+    F -->|no role| G[Gateway refuses the request]
+    F -->|role present| H["Gateway proxies to hugmesh-tube-ui:8080"]
+    H --> I[Module bootstraps TUBE_ROUTES]
+    I --> J[tubeReadGuard / tubeManageGuard evaluate role signals]
+    J -->|insufficient privilege| K["/tube/forbidden screen"]
+    J -->|authorised| L[Correct console rendered]
 ```
+
+The `remote_entry_url` in the table is the in-mesh address. A browser cannot
+resolve it, so the host shell fetches the relative `/tube/remoteEntry.json`
+(`src/assets/federation.manifest.prod.json` in `hugmesh-host-shell`) and the
+gateway forwards `/tube/**` to this container with the `/tube` prefix stripped
+(`StripPrefix=1` in the test stack's `tests/stack/gateway-routes/fe/application-routes.yml`).
 
 Concretely, this remote:
 
@@ -76,11 +82,11 @@ Concretely, this remote:
 - Is served on **port 8080** (see `Dockerfile` + `nginx.conf`,
   `nginxinc/nginx-unprivileged`), so the emitted `remoteEntry.json` is reachable
   at the registered URL from inside the cluster.
-- Is **internal** — reachable only behind the gateway's `/tube=ROLE_TUBE`
-  route-access gate. It is not a public surface; the gateway enforces the role
-  check before the host shell ever fetches the remote entry.
+- Is **internal** — reachable only behind the gateway's `/tube/**` route-access
+  row, which requires `ROLE_TUBE`. It is not a public surface; the gateway
+  enforces the role check on the remote-entry fetch itself.
 
-`federation-base.js` is **byte-identical** to the `hugmesh.net` host — it
+`federation-base.js` is **byte-identical** to the one in `hugmesh-host-shell` — it
 is the single source of truth for the shared-deps surface and the RxJS skip list.
 Keeping it identical prevents this remote from drifting out of sync with the host
 or with other HugMesh remotes, which would break module sharing at runtime.
@@ -91,7 +97,10 @@ The UI gating mirrors `hugmesh-tube-bff-api`'s `SecurityConfig` path gates and
 the controllers' `@PreAuthorize` annotations. The UI checks are a convenience
 layer (defence-in-depth); the BFF gates and the `TubeAccessGuard` default-deny
 decision are the authoritative enforcement point, and every call surfaces a 403
-gracefully if the UI check ever diverges.
+gracefully if the UI check ever diverges. (One divergence exists today: the BFF
+requires `ROLE_TUBE` itself for `/bff/tube/google-connect/**` and
+`/bff/tube/subscriptions/**`, so an admin without `ROLE_TUBE` is let into My Tube
+by the UI and refused there by the BFF.)
 
 | capability | composite | views |
 | --- | --- | --- |
@@ -101,7 +110,7 @@ gracefully if the UI check ever diverges.
 A **granted `ROLE_TUBE` user** sees only **My Tube** — their mirrored subscribed
 channels (`GET /bff/tube/subscriptions`), download queue, storage usage, an
 enqueue action, and **in-platform viewing**: each `done` job gets a `<video>`
-card that requests a short-TTL signed URL (`GET /bff/tube/media/sign`) for its
+card that requests a short-TTL (5 minute) signed URL (`GET /bff/tube/media/sign`) for its
 own `contentPath` on demand. An **ADMIN/SUPERADMIN** additionally sees the
 **Tube Access** and **Storage Budgets** consoles; a **SUPERADMIN** additionally
 sees the list-all + history panel inside Tube Access. A user with none of the
@@ -140,12 +149,12 @@ This remote does not own any login, token-exchange, or session logic — it ride
 the HugMesh SSO model end to end:
 
 - **Casdoor** is the SSO identity provider, but it is **internal-only** and
-  never redirects the browser. [`login-ui`](https://github.com/hugmesh/login-ui)
+  never redirects the browser. [`hugmesh-login-ui`](https://github.com/hugmesh/hugmesh-login-ui)
   renders a native login form that POSTs credentials directly to
-  [`user-bff`](https://github.com/hugmesh/user-bff)'s own `/bff/login`-style
-  endpoint; `user-bff` performs the server-side Casdoor exchange and holds
+  [`hugmesh-user-bff-api`](https://github.com/hugmesh/hugmesh-user-bff-api)'s own `/bff/login`-style
+  endpoint; `hugmesh-user-bff-api` performs the server-side Casdoor exchange and holds
   per-session JWT custody/refresh. (Login/session/account logic lives in
-  `user-bff`, with shared account/session/MFA/Casdoor-admin infrastructure in
+  `hugmesh-user-bff-api`, with shared account/session/MFA/Casdoor-admin infrastructure in
   [`hugmesh-auth-core`](https://github.com/hugmesh/hugmesh-auth-core);
   account/session data lives in `admin-bff-db`, reached by `user-bff` over
   mTLS.)
@@ -158,7 +167,7 @@ the HugMesh SSO model end to end:
   (`GatewayRouteAccessFilter`); the `/tube=ROLE_TUBE` row is the route-access
   floor that fronts this remote and its BFF.
 
-Within this UI, auth rides the **HttpOnly `bff_` cookie**: the shared
+Within this UI, auth rides the **HttpOnly `bff_session` cookie**: the shared
 `authInterceptor` sets `withCredentials: true` on every generated request, and
 the gateway's `BffCookieToBearerWebFilter` mints the Bearer server-side from
 the cookie. The browser holds **no** JS-readable bearer token (see the
@@ -251,13 +260,13 @@ surfaces exactly that and does **not** navigate; `reauthRequired` disables sync
 with visible help text (the disabled+helptext idiom) and offers a re-connect —
 the UI never claims a sync can succeed on a known-bad credential.
 
-Auth rides the HttpOnly `bff_` session cookie: `/bff/*` calls are sent with
+Auth rides the HttpOnly `bff_session` cookie: `/bff/*` calls are sent with
 `withCredentials: true` and the gateway mints the Bearer server-side.
 
 > **Note (security).** An earlier version of this UI stored a JS-readable
 > bearer token in `localStorage` alongside Matrix/Akkoma access tokens. Both
 > have since been removed from `HugSession`. The browser now holds only the
-> **HttpOnly `bff_` cookie**, which the gateway's `BffCookieToBearerWebFilter`
+> **HttpOnly `bff_session` cookie**, which the gateway's `BffCookieToBearerWebFilter`
 > exchanges for the custody Bearer server-side. The non-secret `hug.session`
 > (identity/roles used for UI gating only) remains in `localStorage`;
 > server-side route gates stay authoritative regardless of what the client
@@ -291,7 +300,7 @@ own public DTO types + Promise method signatures + the `TubeApiError` 403/404
 translation, so the consuming components (`tube-my`, `tube-access`,
 `tube-budgets`) need **zero** change; the generated models are bridged at the
 delegation boundary. The shared `authInterceptor` sets `withCredentials: true`
-on every generated request so the HttpOnly `bff_` cookie rides along (the same
+on every generated request so the HttpOnly `bff_session` cookie rides along (the same
 credential the old inline `fetch` sent), so auth behaviour is identical.
 
 The internal worker seam (`/bff/tube/internal/**`, `ROLE_TUBE_WORKER`) has a
@@ -317,7 +326,7 @@ that hop.
 
 ## Develop
 
-**Prerequisites:** Node 24+, Angular CLI 22.x (installed via `npm ci`).
+**Prerequisites:** Node 24.15 or newer (the `@angular/cli` 22.0.4 in `package-lock.json` accepts `^24.15.0`), Angular CLI 22.x (installed via `npm ci`).
 
 ```sh
 npm ci
@@ -343,9 +352,13 @@ CI runs on **GitLab** (`.gitlab-ci.yml`) rather than GitHub Actions for this
 repo — the pipeline builds and pushes the container image to the deployment
 registry. The pipeline stages are:
 
-- **`test`** — headless Karma, `node:24-alpine`.
-- **`e2e`** — `e2e:bdd`, an offline compile/discover proof; non-blocking.
-- **`build:image`** — builds and pushes the container image.
+- **`test`** — two jobs. `test` runs headless Karma in `node:24-alpine`.
+  `test:headers` runs the nginx header guards (`node tests/run-guards.mjs`); it
+  blocks, and `build:image` needs it.
+- **`e2e`** — two non-blocking jobs. `e2e:bdd` is an offline compile/discover proof.
+  `e2e:mock` runs the `@mock` features against the dev shell (see `e2e/README.md`).
+- **`build:image`** — stage `build`; builds and pushes the container image. Runs on
+  the default branch and tags only.
 - **`pentest`** — the centralized OWASP pen-test stage, `include:`d from
   [`hugmesh-generator`](https://github.com/hugmesh/hugmesh-generator)'s
   `tests/pentest/ci/pentest-stage.gitlab-ci.yml`, with a thin `pentest:sca`
@@ -364,15 +377,17 @@ The Node version in CI is `node:24-alpine`; the minor version is not pinned
 (it tracks the latest 24.x from the upstream Docker image).
 
 There is also a manual-only `.github/workflows/release.yml` GitHub Actions
-workflow (`workflow_dispatch` only) that builds and pushes a multi-arch image
-to GHCR — it stays fully inert until someone triggers it by hand.
+workflow (`workflow_dispatch` only) that builds and pushes an image to
+`ghcr.io/hugmesh/hugmesh-tube-ui`. It stays inert until someone triggers it by
+hand. It sets up QEMU but passes no `platforms` to the build step, so the image is
+for the runner's architecture only.
 
 ## Current state
 
 Shipped and on `main` today:
 
-- **Native-federation remote** mounted at `/tube` by the `hugmesh.net`
-  host, `federation-base.js` byte-identical to the host's shared-deps surface.
+- **Native-federation remote** mounted at `/tube` by the host shell,
+  `federation-base.js` byte-identical to the host's shared-deps surface.
 - **Role-aware console:** My Tube (Google connect/sync panel, subscriptions,
   queue, usage, enqueue, in-platform `<video>` viewing via sign-on-demand) for
   `ROLE_TUBE`; Tube Access + Storage Budgets for `ADMIN`/`SUPERADMIN`;
@@ -383,8 +398,10 @@ Shipped and on `main` today:
 - **Typed client:** `TubeService` delegates to the **committed**
   ng-openapi-gen clients against same-origin `/bff/tube/**` — a deterministic
   build with no network access and no running BFF required.
-- **e2e harness:** a Playwright + BDD (Gherkin) harness lives in-tree but is
-  not yet wired into CI as a required gate.
+- **e2e harness:** a Playwright + BDD (Gherkin) harness in `e2e/`. CI runs it as
+  `e2e:bdd` (compile and discover) and `e2e:mock` (the `@mock` features); both are
+  `allow_failure`, so neither is a required gate yet. The `@cluster` scenarios
+  need a live stack and do not run in CI.
 - **Full nginx response-header set** (`nginx.conf`), emitted with `always` (so
   they also cover error responses) and re-declared at **server scope and in
   every `location`** — nginx's `add_header` does not merge, so a block that
@@ -413,6 +430,10 @@ Shipped and on `main` today:
     `picture-in-picture=(self)` — the `<video>` player sets `autoplay` and the
     browser's own `controls` chrome exposes the other two, so `()` on any of the
     three breaks the watch page.
+  - **Runtime theme stylesheets.** `location = /hug-theme.css` and the legacy
+    `location = /snap-theme.css` alias `/tmp/hug-theme.css` and `/tmp/snap-theme.css`,
+    written at container start by `docker-entrypoint.d/50-hug-theme.sh`. They are
+    `Cache-Control: no-store` and carry the same eight security headers.
   - **`/healthz` declares its media type with `default_type`, not
     `add_header Content-Type`.** `add_header` APPENDS, so the endpoint was
     answering with the field twice — `application/octet-stream` (nginx's
@@ -529,7 +550,7 @@ Shipped and on `main` today:
       cross-origin avatar still loads. Those are verified by running the image
       (`nginx -t` plus a curl of every path, and a headless-Chromium load),
       recorded in the PR for issue #3, not by this suite.
-- **CI on GitLab:** `test` + `test:headers` + `e2e` + `build:image` + the centralized OWASP
+- **CI on GitLab:** `test` + `test:headers` + `e2e:bdd` + `e2e:mock` + `build:image` + the centralized OWASP
   `pentest` stage (SCA + ZAP DAST baseline, non-blocking; see CI/CD above for
   the current state of that first pipeline run).
 
@@ -559,12 +580,12 @@ Platform-wide efforts that will touch this console; none is wired here today:
   (`TubeAccessService` currently has no notification call — only an unrelated
   `"@system"` fallback-actor-name string). The platform's `SseNotificationBus`
   (per-user multicast in `user-bff`) and the SSE notification toast
-  (`NotificationToastService`, `hugmesh.net` host shell) are already
+  (`NotificationToastService`, `hugmesh-host-shell`) are already
   shipped, so tube-ui already inherits notification display through the host
   shell with no UI changes needed here — the remaining gap is purely on the
   tube-bff emission side.
 - **Bearer-storage migration** — ✅ done here: `/bff/*` auth now rides the
-  HttpOnly `bff_` cookie (`withCredentials`), and the old JS-readable bearer
+  HttpOnly `bff_session` cookie (`withCredentials`), and the old JS-readable bearer
   token plus the Matrix/Akkoma access tokens were removed from `HugSession`.
   The same migration continues in the remaining HugMesh UIs.
 - **OWASP pen-test CI** — 🚧 jobs defined, first run pending: `.gitlab-ci.yml`
@@ -585,8 +606,9 @@ dedicated `CONTRIBUTING.md`, the short version:
    approach can be discussed up front.
 2. Keep the typed API client generated (`npm run gen:spec`) rather than
    hand-edited — regenerate it after any change to the BFF's OpenAPI spec.
-3. Run `npm test` locally before opening a PR; CI runs the same Karma suite
-   headless plus the `e2e:bdd` compile/discover check.
+3. Run `npm test` and `npm run test:headers` locally before opening a PR; CI
+   runs the same Karma suite headless, the header guards, and the `e2e:bdd` and
+   `e2e:mock` jobs.
 4. Match the existing role-gating pattern (guard + service signal + menu
    visibility) when adding new views — see *Role model* above.
 
