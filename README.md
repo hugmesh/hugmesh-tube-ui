@@ -34,8 +34,9 @@ This repo is one remote. Related repositories:
 | ng-openapi-gen | 1.0.5 |
 
 > **Angular version:** This repo is on Angular 22.x + native-federation 22.x. So
-> are the sibling UI remotes and the host shell: every `@angular/core` dependency
-> in their `package.json` on `origin/main` is `^22`.
+> are the host shell and the other UI repos checked (12 `hugmesh-*-ui` remotes and
+> `hugmesh-api-docs`): `@angular/core` in each `package.json` on `origin/main` is
+> `^22`.
 
 ## Federation contract
 
@@ -53,24 +54,29 @@ A request from browser to this remote runs like this:
 
 ```mermaid
 flowchart TB
-    A[Browser navigates to /tube] --> B["Host shell: tubeGuard (admin, superadmin or ROLE_TUBE)"]
-    B -->|not admitted| C[Redirect to /login]
-    B -->|admitted| D["loadRemoteModule('tube', './Tube')"]
-    D --> E["GET /tube/remoteEntry.json at the gateway"]
-    E --> F{"Gateway route-access: /tube/** needs ROLE_TUBE"}
-    F -->|no role| G[Gateway refuses the request]
-    F -->|role present| H["Gateway proxies to hugmesh-tube-ui:8080"]
+    A[Browser opens /tube] --> B{"Gateway route-access: /tube/** needs ROLE_TUBE"}
+    B -->|no role| C[Gateway refuses the request]
+    B -->|role present| D["HTML navigation: gateway serves the host shell"]
+    D --> E["Host shell: tubeGuard (admin, superadmin or ROLE_TUBE)"]
+    E -->|not admitted| F[Redirect to /login]
+    E -->|admitted| G["loadRemoteModule('tube', './Tube')"]
+    G --> H["GET /tube/remoteEntry.json, same gateway gate, proxied to hugmesh-tube-ui:8080"]
     H --> I[Module bootstraps TUBE_ROUTES]
     I --> J[tubeReadGuard / tubeManageGuard evaluate role signals]
     J -->|insufficient privilege| K["/tube/forbidden screen"]
     J -->|authorised| L[Correct console rendered]
 ```
 
+Inside the running app, navigation starts at the host shell step; the first two
+steps happened on the page load.
+
 The `remote_entry_url` in the table is the in-mesh address. A browser cannot
 resolve it, so the host shell fetches the relative `/tube/remoteEntry.json`
-(`src/assets/federation.manifest.prod.json` in `hugmesh-host-shell`). The gateway
-forwards `/tube/**` to this container with the `/tube` prefix stripped
-(`StripPrefix=1` in the test stack's `tests/stack/gateway-routes/fe/application-routes.yml`).
+(`src/assets/federation.manifest.prod.json` in `hugmesh-host-shell`). In the test
+stack's `tests/stack/gateway-routes/fe/application-routes.yml` the gateway sends
+`/tube/**` requests with `Accept: text/html` to the host shell (route
+`remote-deeplink-to-host-shell`) and every other `/tube/**` request to this
+container, with the `/tube` prefix stripped (`StripPrefix=1`).
 
 This remote:
 
@@ -94,10 +100,7 @@ The UI gating mirrors `hugmesh-tube-bff-api`'s `SecurityConfig` path gates and
 the controllers' `@PreAuthorize` annotations. The UI checks are a convenience
 layer (defence-in-depth). The BFF gates and the `TubeAccessGuard` default-deny
 decision are the authority, and every call surfaces a 403 gracefully if the UI
-check ever diverges. (One divergence exists today: the BFF requires `ROLE_TUBE`
-itself for `/bff/tube/google-connect/**` and `/bff/tube/subscriptions/**`, so an
-admin without `ROLE_TUBE` is let into My Tube by the UI and refused there by the
-BFF.)
+check ever diverges.
 
 | capability | composite | views |
 | --- | --- | --- |
@@ -312,7 +315,7 @@ client method the SPA never calls (see *The OAuth hop* above).
 
 ## Develop
 
-**Prerequisites:** Node 24.15 or newer (the `@angular/cli` 22.0.4 in `package-lock.json` accepts `^24.15.0`), Angular CLI 22.x (installed via `npm ci`).
+**Prerequisites:** a Node version that `@angular/cli` 22.0.4 accepts: `^22.22.3 || ^24.15.0 || >=26.0.0` (its `engines` field in `package-lock.json`; the Dockerfile and CI use Node 24), and Angular CLI 22.x (installed via `npm ci`).
 
 ```sh
 npm ci
