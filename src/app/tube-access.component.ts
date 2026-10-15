@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 
 import { TubeService, TubeAccess, TubeApiError } from './tube.service';
 import { SessionService } from './session.service';
+import { STEP_UP_NOT_CONFIRMED } from './mfa/step-up-messages';
 
 type AccessAction = 'grant' | 'timeout' | 'ban';
 
@@ -192,6 +193,9 @@ export class TubeAccessComponent implements OnInit {
   trackId = (_: number, a: TubeAccess): string => a.id;
 
   private message(e: unknown): string {
+    if (e instanceof TubeApiError && e.stepUp) {
+      return STEP_UP_NOT_CONFIRMED;
+    }
     if (e instanceof TubeApiError && e.isForbidden) {
       return 'The server denied this action — your role does not permit managing Tube access.';
     }

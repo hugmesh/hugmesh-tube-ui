@@ -1,0 +1,121 @@
+@if (request(); as req) {
+  <section
+    class="tube-stepup"
+    data-testid="tube-stepup"
+    role="region"
+    aria-labelledby="tube-stepup-heading"
+  >
+    <h2 id="tube-stepup-heading">Confirm it's you</h2>
+
+    @if (dark()) {
+      <p class="tube-stepup__help" data-testid="tube-stepup-dark">
+        Two-factor authentication is not enabled yet on this deployment, so this action cannot
+        be confirmed here.
+      </p>
+      <div class="tube-stepup__actions">
+        <button type="button" class="tube-btn tube-btn--secondary" data-testid="tube-stepup-close" (click)="cancel()">
+          Close
+        </button>
+      </div>
+    } @else {
+      <p data-testid="tube-stepup-intro">
+        {{ req.action }} needs a fresh security check. Confirm with your authenticator, a
+        passkey, or a recovery code.
+      </p>
+
+      @if (error()) {
+        <p class="tube-stepup__error" data-testid="tube-stepup-error" role="alert" aria-live="assertive">
+          {{ error() }}
+        </p>
+      }
+
+      <fieldset class="tube-stepup__methods">
+        <legend>How would you like to verify?</legend>
+        <label>
+          <input
+            type="radio"
+            name="tube-stepup-method"
+            data-testid="tube-stepup-method-totp"
+            [checked]="method() === 'totp'"
+            (change)="setMethod('totp')"
+          />
+          Authenticator app (6-digit code)
+        </label>
+        <label>
+          <input
+            type="radio"
+            name="tube-stepup-method"
+            data-testid="tube-stepup-method-webauthn"
+            [checked]="method() === 'webauthn'"
+            [disabled]="!webauthnAvailable"
+            (change)="setMethod('webauthn')"
+          />
+          Passkey
+        </label>
+        <label>
+          <input
+            type="radio"
+            name="tube-stepup-method"
+            data-testid="tube-stepup-method-recovery"
+            [checked]="method() === 'recovery'"
+            (change)="setMethod('recovery')"
+          />
+          Recovery code
+        </label>
+      </fieldset>
+
+      @if (method() === 'webauthn') {
+        <div class="tube-stepup__actions">
+          <button
+            type="button"
+            class="tube-btn"
+            data-testid="tube-stepup-webauthn-go"
+            [disabled]="busy() || !webauthnAvailable"
+            (click)="useWebauthn()"
+          >
+            Verify with a passkey
+          </button>
+          <button type="button" class="tube-btn tube-btn--secondary" data-testid="tube-stepup-cancel" (click)="cancel()">
+            Cancel
+          </button>
+        </div>
+      } @else {
+        <form class="tube-stepup__form" (ngSubmit)="submitCode()">
+          <label for="tube-stepup-code">
+            {{ method() === 'totp' ? '6-digit code' : 'Recovery code' }}
+          </label>
+          <input
+            id="tube-stepup-code"
+            name="code"
+            data-testid="tube-stepup-code"
+            type="text"
+            [attr.inputmode]="method() === 'totp' ? 'numeric' : null"
+            autocomplete="one-time-code"
+            [(ngModel)]="code"
+            aria-describedby="tube-stepup-code-help"
+          />
+          <p class="tube-stepup__help" id="tube-stepup-code-help">
+            @if (method() === 'totp') {
+              Enter the current 6-digit code from your authenticator app.
+            } @else {
+              Enter one of the recovery codes you saved when you set up two-factor.
+            }
+          </p>
+          <div class="tube-stepup__actions">
+            <button
+              type="submit"
+              class="tube-btn"
+              data-testid="tube-stepup-submit"
+              [disabled]="busy() || !codeValid()"
+            >
+              Verify
+            </button>
+            <button type="button" class="tube-btn tube-btn--secondary" data-testid="tube-stepup-cancel" (click)="cancel()">
+              Cancel
+            </button>
+          </div>
+        </form>
+      }
+    }
+  </section>
+}

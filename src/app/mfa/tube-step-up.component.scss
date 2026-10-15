@@ -1,0 +1,58 @@
+@use 'controls';
+
+.tube-stepup {
+  max-width: 32rem;
+  margin-block: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--tube-warning, var(--tube-border));
+  border-radius: var(--tube-radius);
+  background: var(--tube-surface);
+  color: var(--tube-text);
+
+  &__help {
+    font-size: 0.9em;
+    color: var(--tube-text-muted);
+  }
+
+  &__error {
+    color: var(--tube-error);
+    font-weight: 600;
+  }
+
+  &__methods {
+    border: none;
+    padding: 0;
+    margin-block: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+
+    legend {
+      font-weight: 600;
+      padding: 0;
+      margin-block-end: 0.25rem;
+    }
+  }
+
+  &__form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    margin-block: 0.5rem;
+
+    input {
+      background: var(--tube-bg);
+      color: var(--tube-text);
+      border: 1px solid var(--tube-border);
+      border-radius: var(--tube-radius);
+      padding: 0.4rem 0.6rem;
+    }
+  }
+
+  &__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-block-start: 0.5rem;
+  }
+}

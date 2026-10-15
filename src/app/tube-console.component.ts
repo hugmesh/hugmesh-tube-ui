@@ -2,6 +2,7 @@ import { Component, ElementRef, QueryList, ViewChildren, inject } from '@angular
 import { CommonModule } from '@angular/common';
 import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
 import { SessionService } from './session.service';
+import { TubeStepUpComponent } from './mfa/tube-step-up.component';
 
 interface TubeNavItem {
   path: string;
@@ -33,7 +34,7 @@ interface TubeNavItem {
 @Component({
   selector: 'hug-tube-console',
   standalone: true,
-  imports: [CommonModule, RouterOutlet, RouterLink, RouterLinkActive],
+  imports: [CommonModule, RouterOutlet, RouterLink, RouterLinkActive, TubeStepUpComponent],
   templateUrl: './tube-console.component.html',
   styleUrl: './tube-console.component.scss',
 })
