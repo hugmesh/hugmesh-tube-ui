@@ -87,6 +87,13 @@ seeded `hug.session` and `page.route()` standing in for the tube-bff. Any
 `/bff/` call a scenario did not mock answers 501. Set `E2E_CHROMIUM` to use a
 specific chromium build. `npm run typecheck` runs `tsc --strict` over the harness.
 
+`features/mock/step-up.feature` covers the MFA step-up: the mocked backend answers
+the first privileged write with the gateway's `403` + `X-Step-Up-Required:
+X-Mfa-StepUp` (empty body), and the scenarios assert the dialog is rendered with a
+real box inside the viewport (a screenshot is kept under `e2e/results/shots/`),
+that a satisfied challenge retries the same call once, that a dismissed one sends
+no retry, and that a plain role denial is never offered a challenge.
+
 This proves what the consoles send and render, not that the bff authorises; the
 server-side guarantees stay in the `@cluster` features. CI job `e2e:mock` runs
 it (non-blocking, `allow_failure`); making it a required gate is a GitLab-side
