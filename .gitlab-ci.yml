@@ -158,6 +158,41 @@ e2e:bdd:
       - e2e/results/
     expire_in: 7 days
 
+# -----------------------------------------------------------------------------
+# e2e:mock — the OFFLINE MOCKED-BACKEND lane (issue #2). Serves the standalone dev
+# shell (`ng run tube:serve-original:development`, started by e2e/playwright.config.ts
+# when E2E_SERVE_APP=1) and runs the `@mock` features (Tube Access + Storage Budgets
+# consoles) with a seeded session and page.route() standing in for the tube-bff.
+# No cluster, no Casdoor. It proves what the consoles send and render, NOT that the
+# bff authorises; that stays in the @cluster features.
+# allow_failure: true = non-blocking. Whether this is a REQUIRED gate is a GitLab
+# project setting (protected-branch / merge-request pipeline rules), not something
+# this file can declare.
+# -----------------------------------------------------------------------------
+e2e:mock:
+  stage: e2e
+  needs: []
+  tags: [hugmesh-x86, privileged]
+  allow_failure: true
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  script:
+    - >-
+      docker run --rm -e CI=1 -v "${CI_PROJECT_DIR}:/src" -w /src node:24 sh -c '
+        npm ci &&
+        cd e2e &&
+        npm ci &&
+        npx playwright install --with-deps chromium &&
+        npm run typecheck &&
+        npm run test:mock
+      '
+  artifacts:
+    when: always
+    paths:
+      - e2e/results/
+    expire_in: 7 days
+
 build:image:
   needs:
     - test
@@ -188,9 +223,43 @@ pentest:sca:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
 
+# DAST — authenticated ZAP baseline via the shared harness (issue #1).
+#
+# HARNESS: FETCHED AT CI TIME, NOT VENDORED. run-pentest.sh executes from the
+# INCLUDING repo's checkout (PENTEST_HARNESS_DIR, default `tests/pentest`), which
+# this Angular remote does not have, so inheriting the template alone gave a job
+# that died having scanned nothing. Fetch beats vendor: the harness is a ~36-file
+# tree whose only consumer is CI, the `include:` above already pins the template to
+# the generator's `main` (cloning the same ref keeps template and harness in
+# lockstep), and vendored copies in the org drifted from upstream and kept
+# silent-skip defects after they were fixed at the source. Same recipe as
+# hugmesh-api-docs#2.
+#
+# The org base is derived from CI_REPOSITORY_URL (it already carries the read-only
+# CI job token), so no host or credential is committed. The clone is PREPENDED to
+# the base's before_script via !reference, never in place of it: `extends:` REPLACES
+# arrays, so a bare `before_script:` would drop the base's pinned-nuclei install and
+# its missing-harness FATAL. Order matters: fetch first, so that FATAL check runs
+# against the fetched tree.
+#
+# rules: are INHERITED (not restated) so they cannot drift from the template.
+# needs: [] because stage ordering would otherwise let a failed build:image remove
+# the scan from the pipeline silently. allow_failure: true is DELIBERATE POLICY.
+# tests/ci-wiring.test.mjs pins every one of these.
+#
+# NOT VERIFIABLE FROM THIS REPO, and failing as a shrug because the stage is
+# allow_failure, so watch the first pipeline: hugmesh/hugmesh-generator must
+# allowlist this project for CI_JOB_TOKEN access (the clone 403s otherwise), and the
+# harness's `make stack-up` clones private repos, so the runner needs a GitHub
+# credential. It scans the platform built from `main`, not this pipeline's commit.
 pentest:dast:
   extends: .pentest-dast-baseline
   allow_failure: true
-  rules:
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  needs: []
+  variables:
+    PENTEST_HARNESS_DIR: "${CI_PROJECT_DIR}/.pentest-harness/tests/pentest"
+  before_script:
+    - rm -rf "${CI_PROJECT_DIR}/.pentest-harness"
+    - ORG_BASE="$(dirname "${CI_REPOSITORY_URL}")"
+    - git clone --depth 1 --branch main "${ORG_BASE}/hugmesh-generator.git" "${CI_PROJECT_DIR}/.pentest-harness"
+    - !reference [.pentest-dast-base, before_script]

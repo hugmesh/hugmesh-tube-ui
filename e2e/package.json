@@ -5,11 +5,14 @@
   "scripts": {
     "test": "playwright test",
     "bdd:gen": "bddgen",
-    "bdd": "bddgen && playwright test"
+    "bdd": "bddgen && playwright test",
+    "test:mock": "E2E_SERVE_APP=1 bddgen && E2E_SERVE_APP=1 playwright test",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "devDependencies": {
     "@playwright/test": "1.55.1",
     "@types/node": "^24.0.0",
-    "playwright-bdd": "^9.2.0"
+    "playwright-bdd": "^9.2.0",
+    "typescript": "~5.9.0"
   }
 }

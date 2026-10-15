@@ -76,3 +76,18 @@ hugmesh-generator's `make stack-seed` (`$E2E_CREDENTIALS_FILE`, or a
 `.e2e-credentials` found by walking up from cwd). There is no built-in literal
 password — if nothing resolves, the suite throws naming `make stack-seed`
 rather than silently authenticating with a guessable default.
+
+## Offline mocked-backend lane (`@mock`)
+
+`npm run test:mock` (in `e2e/`) serves the standalone dev shell itself
+(`E2E_SERVE_APP=1` makes `playwright.config.ts` start
+`ng run tube:serve-original:development` on port 4209, mounted at `/tube`) and
+runs the `@mock` features: the Tube Access and Storage Budgets consoles with a
+seeded `hug.session` and `page.route()` standing in for the tube-bff. Any
+`/bff/` call a scenario did not mock answers 501. Set `E2E_CHROMIUM` to use a
+specific chromium build. `npm run typecheck` runs `tsc --strict` over the harness.
+
+This proves what the consoles send and render, not that the bff authorises; the
+server-side guarantees stay in the `@cluster` features. CI job `e2e:mock` runs
+it (non-blocking, `allow_failure`); making it a required gate is a GitLab-side
+project setting.
