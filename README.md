@@ -34,8 +34,8 @@ This repo is one remote. Related repositories:
 | ng-openapi-gen | 1.0.5 |
 
 > **Angular version:** This repo is on Angular 22.x + native-federation 22.x. So
-> are the host shell and the other UI repos checked (12 `hugmesh-*-ui` remotes and
-> `hugmesh-api-docs`): `@angular/core` in each `package.json` on `origin/main` is
+> are the host shell and the other UI repos checked (the other 12 `hugmesh-*-ui`
+> repos and `hugmesh-api-docs`): `@angular/core` in each `package.json` on `origin/main` is
 > `^22`.
 
 ## Federation contract
@@ -72,8 +72,9 @@ steps happened on the page load.
 
 The `remote_entry_url` in the table is the in-mesh address. A browser cannot
 resolve it, so the host shell fetches the relative `/tube/remoteEntry.json`
-(`src/assets/federation.manifest.prod.json` in `hugmesh-host-shell`). In the test
-stack's `tests/stack/gateway-routes/fe/application-routes.yml` the gateway sends
+(`src/assets/federation.manifest.prod.json` in `hugmesh-host-shell`). In
+`hugmesh-generator`'s test stack
+(`tests/stack/gateway-routes/fe/application-routes.yml`) the gateway sends
 `/tube/**` requests with `Accept: text/html` to the host shell (route
 `remote-deeplink-to-host-shell`) and every other `/tube/**` request to this
 container, with the `/tube` prefix stripped (`StripPrefix=1`).
@@ -553,10 +554,6 @@ Platform-wide efforts that will touch this console. None is wired here today:
   (`NotificationToastService`, `hugmesh-host-shell`) are already shipped. So
   tube-ui already shows notifications through the host shell with no UI change
   here. The gap is on the tube-bff emission side only.
-- **Bearer-storage migration** — ✅ done here. `/bff/*` auth rides the HttpOnly
-  `bff_session` cookie (`withCredentials`), and the old JS-readable bearer token
-  plus the Matrix/Akkoma access tokens were removed from `HugSession`. The same
-  migration continues in the remaining HugMesh UIs.
 - **OWASP pen-test CI** — 🚧 jobs defined, first run pending. `.gitlab-ci.yml`
   includes the central `hugmesh-generator` pen-test stage and adds non-blocking
   `pentest:sca` + `pentest:dast` jobs. SCA is self-contained. The DAST leg (ZAP +
@@ -565,6 +562,13 @@ Platform-wide efforts that will touch this console. None is wired here today:
   CI_JOB_TOKEN allowlist and a runner GitHub credential. The opt-in `k6` load leg
   (`.pentest-load`) is not wired here. It is a CI-pipeline stage, not a deployed
   CronJob or admin-UI trigger.
+
+Done (no longer roadmap): the **bearer-storage migration**. `/bff/*` auth
+rides the HttpOnly `bff_session` cookie: `src/app/auth.interceptor.ts` sets
+`withCredentials: true` on every request, `src/app/tube.service.spec.ts`
+asserts `withCredentials` and no `Authorization` header on the requests it
+checks, and `HugSession` (`src/app/session.service.ts`) carries no token field.
+The same migration continues in the remaining HugMesh UIs.
 
 ## Contributing
 
