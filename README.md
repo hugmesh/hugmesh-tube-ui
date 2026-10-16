@@ -598,10 +598,6 @@ Platform-wide efforts that will touch this console; none is wired here today:
   shipped, so tube-ui already inherits notification display through the host
   shell with no UI changes needed here — the remaining gap is purely on the
   tube-bff emission side.
-- **Bearer-storage migration** — ✅ done here: `/bff/*` auth now rides the
-  HttpOnly `bff_` cookie (`withCredentials`), and the old JS-readable bearer
-  token plus the Matrix/Akkoma access tokens were removed from `HugSession`.
-  The same migration continues in the remaining HugMesh UIs.
 - **OWASP pen-test CI** — 🚧 jobs defined, first run pending: `.gitlab-ci.yml`
   includes the centralized `hugmesh-generator` pen-test stage and adds
   non-blocking `pentest:sca` + `pentest:dast` jobs. SCA is self-contained; the
@@ -610,6 +606,13 @@ Platform-wide efforts that will touch this console; none is wired here today:
   the generator's CI_JOB_TOKEN allowlist and a runner GitHub credential). The opt-in `k6` load leg (`.pentest-load`)
   is not wired here yet — it's a CI-pipeline stage, not a deployed CronJob or
   admin-UI trigger.
+
+Done (no longer roadmap): the **bearer-storage migration**. `/bff/*` auth
+rides the HttpOnly `bff_` cookie: `src/app/auth.interceptor.ts` sets
+`withCredentials: true` on every request, `src/app/tube.service.spec.ts`
+asserts `withCredentials` and no `Authorization` header on the requests it
+checks, and `HugSession` (`src/app/session.service.ts`) carries no token field.
+The same migration continues in the remaining HugMesh UIs.
 
 ## Contributing
 
