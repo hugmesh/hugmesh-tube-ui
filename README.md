@@ -177,8 +177,10 @@ refused by the **gateway** (not tube-bff) when the caller is an admin without a
 fresh second factor: `403`, `X-Route-Denied`, an empty body, and
 `X-Step-Up-Required: X-Mfa-StepUp`. The gateway sends that header only when a
 fresh second factor is the one thing missing; a role denial is the bare 403.
-The seed rows that make the gateway do this are `/bff/tube/admin/access/**` and
-`/bff/tube/admin/storage-budget/**` (`ROLE_ADMIN`, `mfa_required`).
+The seed rows that make the gateway do this for Tube are
+`/bff/tube/admin/access/**` and `/bff/tube/admin/storage-budget/**`
+(`ROLE_ADMIN`, `mfa_required`); they are proposed in hugmesh-generator#758 and
+are not seeded until that lands.
 
 What this UI does on that signal (`src/app/mfa/`, ported from
 `hugmesh-admin-ui`):
@@ -575,7 +577,7 @@ browser). See *Platform auth / session model* above.
 
 ## Roadmap
 
-Platform-wide efforts that will touch this console; none is wired here today:
+Platform-wide efforts that will touch this console and are not finished here:
 
 - **SSO end-to-end live + e2e.** The native-login form-POST → `user-bff`
   custody → opaque `bff_` session → gateway swap flow is being hardened and
@@ -583,9 +585,10 @@ Platform-wide efforts that will touch this console; none is wired here today:
   changes are expected.
 - **Casdoor MFA step-up — live enforcement.** The UI half is wired (see
   [MFA step-up](#mfa-step-up-tube-access--storage-budgets)); what is not done is
-  turning enforcement on. The gateway rows ship `mfa_required` but both gateway
-  flags (`app.mfa.enabled`, `app.mfa.enforce-privileged-floor`) are off by
-  default, so on a stock mesh no admin is ever asked for a second factor. The
+  turning enforcement on: the `mfa_required` seed rows for these routes are in
+  hugmesh-generator#758 (not yet merged), and both gateway flags
+  (`app.mfa.enabled`, `app.mfa.enforce-privileged-floor`) default to off, so on
+  a stock mesh no admin is asked for a second factor. The
   BFF route gates remain authoritative either way.
 - **Notifications — external channels.** Tube access/budget admin actions
   (grant/timeout/ban, budget changes) are account-status/infra events that
