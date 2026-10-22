@@ -173,10 +173,46 @@ gateway's `BffCookieToBearerWebFilter` mints the Bearer server-side from the
 cookie. The browser holds **no** JS-readable bearer token (see the security note
 below).
 
-Two platform-wide efforts will touch this console but are not wired here yet:
-Casdoor MFA step-up for the privileged Tube Access and Storage Budgets actions,
-and outbound notifications for access and budget admin actions. See
+Casdoor MFA step-up for the privileged Tube Access and Storage Budgets actions
+is wired on this side (see [MFA step-up](#mfa-step-up-tube-access--storage-budgets));
+it only does anything on a mesh where the gateway enforces it. Outbound
+notifications for access and budget admin actions are not wired here yet. See
 [Roadmap](#roadmap).
+
+## MFA step-up (Tube Access + Storage Budgets)
+
+The write calls — grant, timeout, ban, revoke, and set-storage-budget — can be
+refused by the **gateway** (not tube-bff) when the caller is an admin without a
+fresh second factor: `403`, `X-Route-Denied`, an empty body, and
+`X-Step-Up-Required: X-Mfa-StepUp`. The gateway sends that header only when a
+fresh second factor is the one thing missing; a role denial is the bare 403.
+The seed rows that make the gateway do this for Tube are
+`/bff/tube/admin/access/**` and `/bff/tube/admin/storage-budget/**`
+(`ROLE_ADMIN`, `mfa_required`); they are proposed in hugmesh-generator#758 and
+are not seeded until that lands.
+
+What this UI does on that signal (`src/app/mfa/`, ported from
+`hugmesh-admin-ui`):
+
+- `step-up-error.ts` recognises it: a `403` with a well-formed
+  `X-Step-Up-Required` value. There is no free-text fallback; the gateway's
+  body is empty.
+- `TubeService` shows the inline MFA challenge (`hug-tube-step-up`, mounted once
+  in the console shell: authenticator code, passkey or recovery code, posted to
+  `POST /bff/mfa/challenge`) and, once it is satisfied, **retries the same call
+  exactly once**. A dismissed challenge, MFA not enabled on the deployment
+  (`503` from `/bff/mfa/*`), or a second refusal surfaces the error without
+  another retry. Reads are never gated.
+- The Tube Access and Storage Budgets forms then say the check was not
+  confirmed, rather than that the role does not permit the action.
+
+Unit specs pin each of those (`step-up-error.spec.ts`,
+`tube.service.step-up.spec.ts`, `mfa/*.spec.ts`). What they cannot prove is the
+gateway side: that the header actually leaves the gateway on a real
+`mfa_required` deny, that it survives the edge in front of it, and that
+`/bff/mfa/challenge` really stamps the session so the retry passes. That needs
+a live mesh with `app.mfa.enabled` and `app.mfa.enforce-privileged-floor` on and
+an enrolled admin.
 
 ## BFF endpoints consumed (`/bff/tube/**`)
 
@@ -566,16 +602,19 @@ never redirects the browser. See *Platform auth / session model* above.
 
 ## Roadmap
 
-Platform-wide efforts that will touch this console. None is wired here today:
+Platform-wide efforts that will touch this console and are not finished here:
 
 - **SSO end-to-end live + e2e.** The native-login form-POST → `hugmesh-user-bff-api`
   custody → opaque `bff_` session → gateway swap flow is being hardened and
   covered by e2e tests platform-wide. This UI uses it as is; no UI changes are
   expected.
-- **Casdoor MFA step-up.** WebAuthn + TOTP + recovery, with per-role defaults.
-  The Tube Access and Storage Budgets privileged actions are candidates for
-  `gateway_route_access.mfa_required` + `mfa_satisfied` step-up gating once
-  this lands platform-wide. The BFF route gates stay authoritative either way.
+- **Casdoor MFA step-up — live enforcement.** The UI half is wired (see
+  [MFA step-up](#mfa-step-up-tube-access--storage-budgets)); what is not done is
+  turning enforcement on: the `mfa_required` seed rows for these routes are in
+  hugmesh-generator#758 (not yet merged), and both gateway flags
+  (`app.mfa.enabled`, `app.mfa.enforce-privileged-floor`) default to off, so on
+  a stock mesh no admin is asked for a second factor. The
+  BFF route gates remain authoritative either way.
 - **Notifications — external channels.** Tube access and budget admin actions
   (grant/timeout/ban, budget changes) are account-status/infra events that
   could emit `@system` notifications (Matrix DM, Akkoma feed, phpBB, email)

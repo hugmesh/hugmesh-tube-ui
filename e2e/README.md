@@ -31,6 +31,7 @@ with the role and no grant gets an "access not yet granted" panel.
 | CROSS-USER | `features/cross-user/list-isolation.feature` | the owner wall again, against a real contentPath the first user created |
 | A11Y | `features/a11y/accessibility.feature` | skip-link → focus `#tube-main`, named menubar landmark, roving tabindex, `aria-current` active item, labelled `role="progressbar"` usage bar, announced status, focus restore |
 | USER-SITUATIONAL (`@mock`) | `features/mock/tube-access.feature`, `features/mock/storage-budgets.feature` | what the Tube Access and Storage Budgets consoles send and render against a mocked BFF (see *Offline mocked-backend lane*) |
+| USER-SITUATIONAL (`@mock`) | `features/mock/step-up.feature` | the MFA step-up: a gateway `403` + `X-Step-Up-Required` on a privileged write shows the challenge; a satisfied challenge retries once, a dismissed one does not, a plain role denial is never offered one |
 
 ## Ships dark (wave 2b)
 
@@ -99,6 +100,13 @@ seeded `hug.session` and `page.route()` standing in for the tube-bff. Any `/bff/
 call a scenario did not mock answers 501. Set `E2E_CHROMIUM` to use a specific
 chromium build. `npm run typecheck` runs `tsc --noEmit` over the harness
 (`strict` is on in `e2e/tsconfig.json`).
+
+`features/mock/step-up.feature` covers the MFA step-up: the mocked backend answers
+the first privileged write with the gateway's `403` + `X-Step-Up-Required:
+X-Mfa-StepUp` (empty body), and the scenarios assert the dialog is rendered with a
+real box inside the viewport (a screenshot is kept under `e2e/results/shots/`),
+that a satisfied challenge retries the same call once, that a dismissed one sends
+no retry, and that a plain role denial is never offered a challenge.
 
 This proves what the consoles send and render. It does not prove that the BFF
 authorises; the `@cluster` features keep that. CI job `e2e:mock` runs it

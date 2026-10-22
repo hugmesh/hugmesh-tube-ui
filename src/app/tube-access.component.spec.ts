@@ -130,3 +130,27 @@ describe('TubeAccessComponent (Tube Access overlay console)', () => {
     expect(el().querySelector('[data-testid="tube-access-row-x"]')).not.toBeNull();
   });
 });
+
+describe('TubeAccessComponent step-up message', () => {
+  it('a step-up refusal that stayed unconfirmed says so, NOT that the role is not permitted', async () => {
+    const canManageAll = signal(false);
+    const tube = jasmine.createSpyObj<TubeService>('TubeService', [
+      'grant', 'timeout', 'ban', 'revoke', 'listActiveAccess', 'accessHistory',
+    ]);
+    await TestBed.configureTestingModule({
+      imports: [TubeAccessComponent],
+      providers: [
+        { provide: TubeService, useValue: tube },
+        { provide: SessionService, useValue: { canManageAll } },
+      ],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(TubeAccessComponent);
+    fixture.detectChanges();
+    tube.grant.and.rejectWith(new TubeApiError(403, '', true));
+    fixture.componentInstance.userSubject.set('google:bob@x.com');
+    await fixture.componentInstance.submit();
+    const msg = fixture.componentInstance.error();
+    expect(msg).toContain('fresh security check');
+    expect(msg).not.toContain('role does not permit');
+  });
+});
