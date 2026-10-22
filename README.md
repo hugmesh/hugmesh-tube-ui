@@ -365,10 +365,42 @@ from `main`, not the pipeline's own commit.
 The CI Node image is `node:24-alpine`. The minor version is not pinned; it tracks
 the latest 24.x of the upstream Docker image.
 
-A manual-only `.github/workflows/release.yml` (`workflow_dispatch` only) builds
-and pushes an image to `ghcr.io/hugmesh/hugmesh-tube-ui`. It stays inert until
-someone runs it by hand. It sets up QEMU but passes no `platforms` to the build
-step, so the image is for the runner's architecture only.
+## Releases
+
+The package version lives in `package.json` (and `package-lock.json`, which must
+match). It is currently `0.2.0-beta.1`: built and tested, not yet proven live
+(the org's beta scheme: `MAJOR.MINOR.PATCH-beta.N`, N raised for each new beta of
+the same base).
+
+`.github/workflows/release.yml` builds and pushes `ghcr.io/hugmesh/hugmesh-tube-ui`:
+
+| trigger | image tags | GitHub Release |
+| --- | --- | --- |
+| push to `main` | `:main`, `:sha-<12>` | none |
+| push of tag `v<version>` | `:<version>`, `:beta`, `:sha-<12>` | prerelease, never "latest" |
+| `workflow_dispatch` on `main` or a `v*` tag | same as the push it re-runs | created only if missing |
+| any other ref | refused | none |
+
+- The tag must be exactly `v` + the `package.json` version, or the run fails.
+- A version tag that already exists on GHCR is never overwritten (a tag push
+  fails; a re-run dispatch skips the build).
+- `:latest` is never pushed.
+- Before any image is pushed, the run passes both GitLab gates: the unit suite
+  (`npm test`) and `node tests/run-guards.mjs` (`test:headers`).
+- The image is for the runner's architecture only (no `platforms`).
+- Runner: jobs use the runner named by the repo variable `RUNS_ON_PUBLISH` (a
+  JSON array) only for `main` and `v*` tags; otherwise, or while the variable is
+  unset, they use hosted `ubuntu-latest`. The workflow has no pull-request
+  trigger.
+
+To publish a beta, after the version bump is on `main`:
+
+```
+git tag -a v0.2.0-beta.1 <commit on main> -m 'tube-ui 0.2.0-beta.1'
+git push origin v0.2.0-beta.1
+```
+
+To re-run a release by hand: `gh workflow run release.yml -R hugmesh/hugmesh-tube-ui --ref v0.2.0-beta.1`.
 
 ## Current state
 
