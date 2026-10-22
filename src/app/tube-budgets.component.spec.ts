@@ -84,3 +84,21 @@ describe('TubeBudgetsComponent (Storage Budgets console)', () => {
     expect(fixture.componentInstance.formatBytes(1024 ** 3)).toBe('1.0 GB');
   });
 });
+
+describe('TubeBudgetsComponent step-up message', () => {
+  it('a step-up refusal that stayed unconfirmed says so, NOT that the role is not permitted', async () => {
+    const tube = jasmine.createSpyObj<TubeService>('TubeService', ['setBudget']);
+    await TestBed.configureTestingModule({
+      imports: [TubeBudgetsComponent],
+      providers: [{ provide: TubeService, useValue: tube }],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(TubeBudgetsComponent);
+    fixture.detectChanges();
+    tube.setBudget.and.rejectWith(new TubeApiError(403, '', true));
+    fixture.componentInstance.userSubject.set('google:bob@x.com');
+    await fixture.componentInstance.submit();
+    const msg = fixture.componentInstance.error();
+    expect(msg).toContain('fresh security check');
+    expect(msg).not.toContain('role does not permit');
+  });
+});

@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 
 import { TubeService, Usage, TubeApiError } from './tube.service';
 import { formatBytes } from './format-bytes';
+import { STEP_UP_NOT_CONFIRMED } from './mfa/step-up-messages';
 
 /**
  * The "Storage Budgets" console — set a per-user download storage budget over
@@ -111,6 +112,9 @@ export class TubeBudgetsComponent {
   trackUser = (_: number, u: Usage): string => u.userSubject;
 
   private message(e: unknown): string {
+    if (e instanceof TubeApiError && e.stepUp) {
+      return STEP_UP_NOT_CONFIRMED;
+    }
     if (e instanceof TubeApiError && e.isForbidden) {
       return 'The server denied this action — your role does not permit setting storage budgets.';
     }

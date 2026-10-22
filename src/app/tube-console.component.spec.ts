@@ -4,6 +4,7 @@ import { signal } from '@angular/core';
 
 import { TubeConsoleComponent } from './tube-console.component';
 import { SessionService } from './session.service';
+import { StepUpService } from './mfa/step-up.service';
 
 /** A stub SessionService with settable capability signals so each role scenario
  *  is exercised by flipping canUse/canManage. */
@@ -93,5 +94,12 @@ describe('TubeConsoleComponent (role-gated nav)', () => {
       expect(describedby).toBeTruthy();
       expect(el().querySelector('#' + describedby)).withContext('help element exists').not.toBeNull();
     }
+  });
+  it('hosts the step-up dialog: absent until a gated call asks, shown while it is pending', () => {
+    fixture.detectChanges();
+    expect(el().querySelector('[data-testid="tube-stepup"]')).toBeNull();
+    void TestBed.inject(StepUpService).challenge('Banning a user');
+    fixture.detectChanges();
+    expect(el().querySelector('[data-testid="tube-stepup"]')).not.toBeNull();
   });
 });

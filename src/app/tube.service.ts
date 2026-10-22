@@ -7,6 +7,8 @@ import { TubeGoogleConnectService } from './api/services/tube-google-connect.ser
 import { TubeMediaSigningService } from './api/services/tube-media-signing.service';
 import { TubeStorageBudgetAdminService } from './api/services/tube-storage-budget-admin.service';
 import { TubeUseAccessService } from './api/services/tube-use-access.service';
+import { isStepUpRequiredError } from './mfa/step-up-error';
+import { StepUpService } from './mfa/step-up.service';
 
 /** Base URL of the tube BFF. The fe-gateway proxies same-origin /bff/tube/** to
  *  hugmesh-tube-bff-api (the download work-queue + storage-budget + use-access
@@ -167,6 +169,10 @@ export class TubeApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    /** True when the 403 carried the gateway's `X-Step-Up-Required` signal: the caller
+     *  is refused ONLY for want of a fresh second factor. Distinct from a plain
+     *  {@link isForbidden}, which is a role denial no challenge can fix. */
+    readonly stepUp: boolean = false,
   ) {
     super(message);
     this.name = 'TubeApiError';
@@ -246,6 +252,7 @@ export class TubeService {
   private readonly media = inject(TubeMediaSigningService);
   private readonly budgets = inject(TubeStorageBudgetAdminService);
   private readonly access = inject(TubeUseAccessService);
+  private readonly stepUp = inject(StepUpService);
 
   constructor() {
     // Bind the generated clients' rootUrl to TUBE_BASE_URL so a host override
@@ -268,9 +275,28 @@ export class TubeService {
           (body && typeof body === 'object' && (body.message ?? body.error)) ||
           (typeof body === 'string' ? body : '') ||
           e.message;
-        throw new TubeApiError(e.status, detail || `request failed: ${e.status}`);
+        throw new TubeApiError(
+          e.status,
+          detail || `request failed: ${e.status}`,
+          isStepUpRequiredError(e),
+        );
       }
       throw e;
+    }
+  }
+
+  /** Like {@link run}, for the calls the gateway can refuse with the step-up signal
+   *  (the admin write surfaces). On that signal, shows the MFA challenge and, once it is
+   *  satisfied, retries the SAME call exactly once. `op` is a thunk so the retry is a
+   *  fresh request. A dismissed challenge, a dark MFA deployment, or a second refusal
+   *  surfaces the {@link TubeApiError} as-is: never a loop, never a blind second retry. */
+  private async runStepUp<R>(action: string, op: () => Promise<unknown>): Promise<R> {
+    try {
+      return await this.run<unknown, R>(op());
+    } catch (e) {
+      if (!(e instanceof TubeApiError) || !e.stepUp) throw e;
+      if (!(await this.stepUp.challenge(action))) throw e;
+      return this.run<unknown, R>(op());
     }
   }
 
@@ -358,24 +384,24 @@ export class TubeService {
   /** POST /bff/tube/admin/storage-budget → TubeDownloadDto.Usage. Sets a target
    *  user's download storage budget (bytes); brand is server-derived (own-brand). */
   setBudget(body: BudgetRequest): Promise<Usage> {
-    return this.run<unknown, Usage>(this.budgets.setStorageBudget({ body }));
+    return this.runStepUp<Usage>('Setting a storage budget', () => this.budgets.setStorageBudget({ body }));
   }
 
   // ----- ADMIN: use-access overlay (TUBE_MANAGE = ADMIN|SUPERADMIN) --------
 
   /** POST /bff/tube/admin/access/grant → TubeAccessDto.Access (permanent may-use). */
   grant(body: GrantOrBan): Promise<TubeAccess> {
-    return this.run<unknown, TubeAccess>(this.access.grantUseAccess({ body }));
+    return this.runStepUp<TubeAccess>('Granting Tube access', () => this.access.grantUseAccess({ body }));
   }
 
   /** POST /bff/tube/admin/access/timeout → TubeAccessDto.Access (bounded ban; auto-restores). */
   timeout(body: TimeoutBody): Promise<TubeAccess> {
-    return this.run<unknown, TubeAccess>(this.access.timeoutUseAccess({ body }));
+    return this.runStepUp<TubeAccess>('Timing a user out', () => this.access.timeoutUseAccess({ body }));
   }
 
   /** POST /bff/tube/admin/access/ban → TubeAccessDto.Access (permanent ban; ban>grant). */
   ban(body: GrantOrBan): Promise<TubeAccess> {
-    return this.run<unknown, TubeAccess>(this.access.banUseAccess({ body }));
+    return this.runStepUp<TubeAccess>('Banning a user', () => this.access.banUseAccess({ body }));
   }
 
   /** DELETE /bff/tube/admin/access/{accessType}/{userSubject} — revoke an active
@@ -386,8 +412,9 @@ export class TubeService {
    *  ({@code {[k:string]:{}}}), so the {@code { state }} shape is restored at the
    *  delegation boundary. */
   revoke(accessType: 'use' | 'banned', userSubject: string): Promise<{ state: string }> {
-    return this.run<unknown, { state: string }>(
-      this.access.revokeUseAccess({ accessType, userSubject }),
+    return this.runStepUp<{ state: string }>(
+      accessType === 'banned' ? 'Lifting a ban' : 'Removing a grant',
+      () => this.access.revokeUseAccess({ accessType, userSubject }),
     );
   }
 
